@@ -1,5 +1,5 @@
 ## Abe Tishelman-Charny Edited by Michael Plesser
-## Last revised: July 5 2018
+## Last revised: July 6 2018
 ## The purpose of this file and PlotterTools2D.py are to plot H4Analysis outputs
 ## If you get an error about libpython2.7, move the 2DTreePlotter folder inside ~/CMSSW_8_0_26_patch1/src and run cmsenv
 
@@ -7,13 +7,13 @@ from PlotterTools2D import * # Almost ALL user-level parameters are set from Plo
 from ROOT import *	
 
 ## Checks if a file name has already been used, and if so instead of overwriting, simply add a number flag
-def overwrite_check(filename):
-	while ( (filename+'.pdf') in os.listdir(outputLoc)) == True:		# If the file name has already been used
-		if len(filename.split(' '))==1:					# If it has been only used once, IE 'dummyfile'
-			filename += " 1"					# Make it into "dummyfile 1"
-		else:								# If there are multiple already, IE "dummyfile 2" exists
-			filename = filename.split(' ')[0] + ' ' + str( int(filename.split(' ')[-1]) + 1 ) # Increment the end number by 1
-	return filename
+def overwrite_check(f):
+	while ( (f+'.pdf') in os.listdir(outputLoc)) == True:		# If the file name has already been used
+		if len(f.split(' '))==1:				# If it has been only used once, 'dummyfile'
+			f += " 1"					# Make it into "dummyfile 1"
+		else:							# If there are multiple already, "dummyfile 2" 
+			f = f.split(' ')[0] + ' ' + str( int(f.split(' ')[-1]) + 1 )	# Increment the end number by 1
+	return f
 
 def main():
 	## Stats box parameters
@@ -27,7 +27,7 @@ def main():
 
 	for i in xrange(len(Vars)):	# For each plot of interest, set in PlotterTools2D.py			
 		cut = Cuts[i]		# Cuts for the current plot of interest
-		v    = Vars[i]		# For all things to plot. Each element in Vars has ~10 elements
+		v   = Vars[i]		# For all things to plot. Each element in Vars has ~10 elements
 
 		hists = []
 		#leg = TLegend(0.6, 0.7, 0.89, 0.89)
