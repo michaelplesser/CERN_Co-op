@@ -2,7 +2,7 @@ A simple tool for plotting histograms relevant to the H4TB analysis work
 
 This repo should be placed in the folder CMSSW_8_0_26_patch1/src
 
-To get this folder (if you don't already have it):
+To get this folder (if you don't already have it), do the following from inside lxplus:
 
 	cmsrel CMSSW_8_0_26_patch1
 	cd CMSSW_8_0_26_patch1
