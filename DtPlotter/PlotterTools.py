@@ -13,6 +13,8 @@ def output_location():
 	savepath = os.getcwd() + "/plots/"
 	if os.path.exists(savepath) == False:	# Creates an output directory if none exists
 		os.mkdir(savepath)
+		os.mkdir(savepath + "images/")
+		os.mkdir(savepath + "root_files/")
 	return savepath
 
 ## Define location of files to be analyzed
@@ -61,15 +63,21 @@ def define_cuts(filei, args):
 	if args.dt is not False:	
 		# Dt cuts
 		xtal 	  = get_xtals(filei)
-		chi2_lb   = 1	# chi2 lower bound
-		chi2_ub   = 200	# chi2 upper bound
-		chi2_cut  = "fit_chi2["+xtal[0]+"]<"+str(chi2_ub)+" && fit_chi2["+xtal[0]+"]>"+str(chi2_lb)+" &&"
-		chi2_cut += "fit_chi2["+xtal[1]+"]<"+str(chi2_ub)+" && fit_chi2["+xtal[1]+"]>"+str(chi2_lb)
-		fiber_cut = "nFibresOnX[0]==2 && nFibresOnY[0]==2"
-		clock_cut = "time_maximum["+xtal[0]+"]-time_maximum["+xtal[1]+"]==0"
-		#amp_cut   = ""
 
-		Cts.append(clock_cut + " && " + chi2_cut + " && " + fiber_cut)
+		chi2_bounds   = [[1, 800],[1,200]]	# chi2 bounds for [[C3],[C2/4]]
+		chi2_cut  = "fit_chi2["+xtal[0]+"]<"+str(chi2_bounds[0][1])+" && fit_chi2["+xtal[0]+"]>"+str(chi2_bounds[0][0])+" && "
+		chi2_cut += "fit_chi2["+xtal[1]+"]<"+str(chi2_bounds[1][1])+" && fit_chi2["+xtal[1]+"]>"+str(chi2_bounds[1][0])
+
+		fiber_cut = "nFibresOnX[0]==2 && nFibresOnY[0]==2"
+
+		clock_cut = "time_maximum["+xtal[0]+"]-time_maximum["+xtal[1]+"]==0"
+		
+		amp_max   = 0
+		if args.ampmax is not None:
+			amp_max   = str(args.ampmax) 
+		amp_cut   = "amp_max[" + xtal[0] + "]>" + amp_max + " && amp_max[" + xtal[1] + "]>" + amp_max   
+
+		Cts.append(clock_cut + " && " + chi2_cut + " && " + fiber_cut + " && " + amp_cut)
 	return Cts
 
 ## Plots to be created (append used for future uses, creating multiple plots)
@@ -89,7 +97,7 @@ def define_plots(filei, args):
 	if args.dt is not False:
 		# Dt bounds
 		xbins = 100
-		xmin  = -5
-		xmax  = 5
+		xmin  = -2
+		xmax  = 1
 		Plts.append(["fit_time["+xtal[0]+"]-fit_time["+xtal[1]+"]", "Intercrystal_time_difference", xbins, xmin, xmax])
 	return Plts		
