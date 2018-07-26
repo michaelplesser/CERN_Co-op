@@ -2,18 +2,22 @@
 ## Last revised: July 18 2018
 
 from PlotterTools import *
+from array import array
 from ROOT import *
 import argparse
-from array import array
+
 
 def input_arguments():
 	parser = argparse.ArgumentParser(description='Control plotting and cuts for inter-crystal time resolution studies')
 
-	parser.add_argument('-x'  , action='store_true', help='Create plots for fit_chi2[C3] and fit_chi2[<other xtal>]')
-	parser.add_argument('--dt', action='store_true', help='Create plots for fit_time[C3]  -  fit_time[<other xtal>]')
-	parser.add_argument('-a'  , action='store_true', help='Create effective voltage (Aeff) plot')
-	parser.add_argument('-s'  , action='store_true', help='Create resolution versus  Aeff  plot')
-	parser.add_argument('-q'  , action='store_true', help='Use a quantile method for the resolution versus  Aeff  plot')
+	parser.add_argument('--dt',  action='store_true', help='Create plots for fit_time[C3]  -  fit_time[<other xtal>]')
+	parser.add_argument('-x'  ,  action='store_true', help='Create plots for fit_chi2[C3] and fit_chi2[<other xtal>]')
+	parser.add_argument('-a'  ,  action='store_true', help='Create effective voltage (Aeff) plot')
+	parser.add_argument('-s'  ,  action='store_true', help='Create resolution versus  Aeff  plot')
+
+	parser.add_argument('-q'  ,  action='store_true', help='Use a quantile method for the resolution versus  Aeff  plot')
+
+	parser.add_argument('--fit', action='store_true', help='Apply a fitting to the res vs aeff plot')
 
 	parser.add_argument('-d'  , type=str,            help='Use all the files in the given directory for analysis ')
 	parser.add_argument('-f'  , type=str,            help='Use the given file for analysis(use the absolute path)')
@@ -57,70 +61,53 @@ def main():
 				tree  = tfile.Get("h4")
 				c0 = TCanvas('c0', 'c0', 900, 600)
 
-				if args.x is not False or args.dt is not False or args.a is not False:
-					if len(p)==5:	# -x, --dt, and -a options are for TH1F, and require 5 params 
+				if len(p)==5:	# -x, --dt, and -a options are for TH1F, and require 5 params 
 
-						# Create the desired plot
-						hname = f[1] +'_'+str(fi) 
-						h = TH1F(hname, plot_title, p[2], p[3], p[4])
+					# Create the desired plot
+					hname = f[1] +'_'+str(fi) 
+					h = TH1F(hname, plot_title, p[2], p[3], p[4])
 												
-						tree.Draw(p[0]+'>>'+hname, TCut(cut))
-						h.GetXaxis().SetTitle(p[1])
-						h.Fit("gaus")
-						c0.SaveAs(savepath + "images/" + file_title + '.png', "update")				# Save a .png of the canvas
+					tree.Draw(p[0]+'>>'+hname, TCut(cut))
+					h.GetXaxis().SetTitle(p[1])
+					h.Fit("gaus")
+					c0.SaveAs(savepath + "images/" + file_title + '.png', "update")				# Save a .png of the canvas
 
-						histosavefile = TFile(savepath + "root_files/" + file_title + ".root", "update")
-						histosavefile.cd()				
-						c0.Write()										# Save the canvas as a .root file
+					histosavefile = TFile(savepath + "root_files/" + file_title + ".root", "update")
+					histosavefile.cd()				
+					c0.Write()										# Save the canvas as a .root file
 
-				if args.s is not False:
-					if len(p)==8:	# -s is for a TH2F and requires 8 params
+				if len(p)==8:	# -s is for a TH2F and requires 8 params
 
-						if args.q==True: # Use quantiles
-							# Calculate uneven bin widths to get the same number of events in each, "quantiles"
-							aeff 	 = p[0].split(':')[-1]
-							aeff_tmp = TH1F('aeff',"", 100, p[3], p[4])	# Creates a temporary histogram to find the quantiles
-							tree.Draw(aeff+'>>'+'aeff', TCut(cut))
-							nquants = p[2]+1							# n_quantiles = nbins + 1
-							probs = array('d', [x/(nquants-1.) for x in range(0, nquants)])		# Quantile proportions array
-	 						quantiles = array('d', [0 for x in range(0, nquants)])			# Bin edges, initialized as all 0's
-							aeff_tmp.GetQuantiles(nquants, quantiles, probs)			# Overwrites quantiles with bin edges positions
+					# Create the heat map
+					if args.q == True:	 # Use quantiles
+						quantiles = find_quantiles(p,cut,tree)
+						hh = TH2F('hh', f[1]+'_dt_vs_aeff_heatmap', p[2], quantiles, p[5], p[6], p[7])
+					else:			# Use fixed width bins
+						hh = TH2F('hh', f[1]+'_dt_vs_aeff_heatmap', p[2], p[3], p[4], p[5], p[6], p[7])		
+					tree.Draw(p[0]+">>hh", TCut(cut), "COLZ")
 
-							# Create the heat map with quantiles
-							hh = TH2F('hh', f[1]+'_dt_vs_Aeff_heatmap', p[2], quantiles, p[5], p[6], p[7])
+					c0.SaveAs(savepath + "images/" + f[1] + '_dt_vs_aeff_heatmap.png', "update")			# Save a .png of the canvas
+					histosavefile = TFile(savepath + "root_files/" + f[1] + '_dt_vs_aeff_heatmap.root', "update")
+					histosavefile.cd()				
+					c0.Write()											# Save the canvas as a .root file
 
-						else:	# Use fixed-width bins
-							# Create the heat map
-							hh = TH2F('hh', f[1]+'_dt_vs_Aeff_heatmap', p[2], p[3], p[4], p[5], p[6], p[7])												
-												
-						tree.Draw(p[0]+">>hh", TCut(cut), "COLZ")
+					# Create the resolution versus Aeff plot
+					hh.FitSlicesY()
+					hh_2 = gDirectory.Get("hh_2")
+					hh_2.SetTitle(f[1]+'_dt_resolution_vs_aeff')					
+					hh_2.Draw()
 
-						c0.SaveAs(savepath + "images/" + f[1] + '_dt_vs_Aeff_heatmap.png', "update")			# Save a .png of the canvas
-						histosavefile = TFile(savepath + "root_files/" + f[1] + '_dt_vs_Aeff_heatmap.root', "update")
-						histosavefile.cd()				
-						c0.Write()											# Save the canvas as a .root file
-
-						# Create the resolution versus Aeff plot
-						hh.FitSlicesY()
-						hh_2 = gDirectory.Get("hh_2")
-						hh_2.SetTitle(f[1]+'_dt_resolution_vs_Aeff')
-						hh_2.Draw()
-
-						# fit the plot using a user defined function
-						def userfit(x,par):
-							if x[0] >0:
-								fit = pow(pow(par[0]/(x[0]),2)+2*pow(par[1],2), 0.5)								
-								return fit
-						userfit = TF1('userfit', userfit, 100, 2000, 2)
-						userfit.SetParameters(30, 0.1)
-						userfit.SetParNames("N", "c")
-						hh_2.Fit("userfit", 'R')
-
-						c0.SaveAs(savepath + "images/" + file_title + '.png', "update")					# Save a .png of the canvas
-						resosavefile = TFile(savepath + "root_files/" + file_title + ".root", "update")
-						resosavefile.cd()				
-						c0.Write()											# Save the canvas as a .root file
-
+					# Fit the plot using a user defined function
+					if args.fit == True:
+						userfit = TF1('userfit', userfit, 50, 2300, 2)	# userfit defined in PlotterTools.py
+						userfit.SetParameters(10, 0.1)			# Set a guess for the parameters
+						userfit.SetParNames("N", "c")			# Name the parameters
+						hh_2.Fit("userfit", 'R')			# Fit the data
+				
+					c0.SaveAs(savepath + "images/" + file_title + '.png', "update")					# Save a .png of the canvas
+					resosavefile = TFile(savepath + "root_files/" + file_title + ".root", "update")
+					resosavefile.cd()				
+					c0.Write()											# Save the canvas as a .root file
 
 if __name__ == "__main__":
 	main()
