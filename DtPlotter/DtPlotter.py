@@ -99,7 +99,11 @@ def main():
 
 					# Fit the plot using a user defined function
 					if args.fit == True:
-						userfit = TF1('userfit', userfit, 50, 2300, 2)	# userfit defined in PlotterTools.py
+						def userfit(x,par):
+							if x[0]>0:
+								fit = pow(pow(par[0]/(x[0]),2)+2*pow(par[1],2), 0.5)								
+								return fit
+						userfit = TF1('userfit', userfit, 50, 2300, 2)	
 						userfit.SetParameters(10, 0.1)			# Set a guess for the parameters
 						userfit.SetParNames("N", "c")			# Name the parameters
 						hh_2.Fit("userfit", 'R')			# Fit the data

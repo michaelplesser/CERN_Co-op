@@ -98,13 +98,6 @@ def find_quantiles(p,cut,tree):
 
 
 
-def userfit(x,par):
-	if x[0]>0:
-		fit = pow(pow(par[0]/(x[0]),2)+2*pow(par[1],2), 0.5)								
-		return fit
-	
-
-
 ## Cuts to selection
 def define_cuts(filei, args):
 	Cts          = []
