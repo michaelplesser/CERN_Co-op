@@ -23,6 +23,7 @@ def output_location():
 ## Define location of files to be analyzed
 def analysis_path(args):
 	Files = []		# Filled with format [ ["name", "<energy> <position>"], ...], and assumes the filename is of form <blablabla>_energy_position.root
+	print "\n"
 	if args.f is not None:			# File specified
 		file = args.f
 		Files.append( [file, file.split('_')[-2]+'_'+file.split('_')[-1].split('.')[0]] )			
@@ -98,6 +99,38 @@ def find_quantiles(p,cut,tree):
 
 
 
+## Adjust dT using a linear fit, to correct "mean walking" location effects in the deposition
+def dt_adjustment(filei, tree, cut):
+	xtal 	     = get_xtals(filei)
+	ampbias      = amp_coeff(xtal)
+
+	Aeff  = "fit_ampl[{}]*{}*fit_ampl[{}] /  pow( pow(fit_ampl[{}],2)+pow({}*fit_ampl[{}],2) , 0.5)".format(xtal[0],ampbias,xtal[1],xtal[0],ampbias,xtal[1])
+	dt    = "fit_time[{}]-fit_time[{}]".format(xtal[0],xtal[1])
+	dampl = "fit_ampl[{}]-{}*fit_ampl[{}]".format(xtal[0],ampbias,xtal[1])
+
+	hadjust = TH2F('hadjust', '', 15, -1500, 1500, 300, -2, 2)
+	tree.Draw(dt+":"+dampl+">>hadjust", TCut(cut), "COLZ")
+	
+	hadjust.FitSlicesY()
+	hadjust_1 = gDirectory.Get("hadjust_1")	# Plot dt distribution means versus difference vs crystal amplitudes
+	hadjust_1.Draw()
+
+	poly1 = TF1("poly1", "pol1", -1500, 1500)
+	poly1.SetParameter(0,0.5)	
+	poly1.SetParameter(1,0.00001)
+	hadjust_1.Fit("poly1", "qR")
+
+	dt0   = str(poly1.GetParameter(0))	
+	slope = str(poly1.GetParameter(1))
+	chi2  = str(hadjust_1.Chisquare(poly1))
+
+	print "Dt adjustment parameters: slope =",slope,", y-intercept =",dt0, ", chi2:",chi2
+	adjusted_plot0 = "(fit_time[{}]-fit_time[{}])-({}*({})):{}/b_rms".format(xtal[0],xtal[1],slope,dampl,Aeff)
+
+	return adjusted_plot0
+
+
+
 ## Cuts to selection
 def define_cuts(filei, args):
 	Cts          = []
@@ -106,36 +139,32 @@ def define_cuts(filei, args):
 
 	x_center, y_center = find_center(filei)
 
-	pos_val      = "5"
-	dampl_val    = "100"
+	pos_val      = "3"
+	dampl_val    = "1000"
 
-	fiber_cut    = "fabs(nFibresOnX[0]-2)<2 && fabs(nFibresOnY[0]-2)<2"
-	clock_cut    = "time_maximum[" +xtal[0]+"]==time_maximum["+xtal[1]+"]"
-	position_cut = "(fabs(X[0]-"+x_center+")<"+pos_val+") && (fabs(Y[0]-"+y_center+")<"+pos_val+")"
-	dampl_cut    = "fabs(fit_ampl["+xtal[0]+"]-"+ampbias+"*fit_ampl["+xtal[1]+"] )<"+dampl_val
+	fiber_cut    = "fabs(nFibresOnX[0]-2)<1 && fabs(nFibresOnY[0]-2)<1"
+	clock_cut    = "time_maximum[{}]==time_maximum[{}]".format(xtal[0],xtal[1])
+	position_cut = "(fabs(X[0]-{})<{}) && (fabs(Y[0]-{})<{})".format(x_center,pos_val,y_center,pos_val)
+	dampl_cut    = "fabs(fit_ampl[{}]-{}*fit_ampl[{}] )<{}".format(xtal[0],ampbias,xtal[1],dampl_val)
 
 	chi2_bounds  = [[1, 100],[1,100]]	# chi2 bounds for [[C3],[C2/4]]
 	if args.chicuts is not None:
 		chicuts = args.chicuts.split(',')
 		chi2_bounds = [ [int(chicuts[0]), int(chicuts[1])], [int(chicuts[2]), int(chicuts[3])] ]
-	chi2_cut  = "fit_chi2["+xtal[0]+"]<"+str(chi2_bounds[0][1])+" && fit_chi2["+xtal[0]+"]>"+str(chi2_bounds[0][0])+" && "
-	chi2_cut += "fit_chi2["+xtal[1]+"]<"+str(chi2_bounds[1][1])+" && fit_chi2["+xtal[1]+"]>"+str(chi2_bounds[1][0])
+	chi2_cut  = "fit_chi2[{}]<{} && fit_chi2[{}]>{} && ".format(xtal[0],chi2_bounds[0][1],xtal[0],chi2_bounds[0][0])
+	chi2_cut += "fit_chi2[{}]<{} && fit_chi2[{}]>{}".format(xtal[1],chi2_bounds[1][1],xtal[1],chi2_bounds[1][0])
 	
 	amp_max = "0"
 	if args.ampmax is not None:
 		amp_max = str(args.ampmax) 
-	amp_cut = "amp_max[" + xtal[0] + "]>" + amp_max + " && " + ampbias + "*amp_max[" + xtal[1] + "]>" + amp_max 
+	amp_cut = "amp_max[{}]>{} && {}*amp_max[{}]>{}"format(xtal[0],amp_max,ampbias,xtal[1],amp_max)
 
-	Aeff = "fit_ampl["+xtal[0]+"]*" + ampbias + "*fit_ampl["+xtal[1]+"] /  pow( pow(fit_ampl["+xtal[0]+"],2)+pow(" + ampbias + "*fit_ampl["+xtal[1]+"],2) , 0.5)"
+	Aeff  = "fit_ampl[{}]*{}*fit_ampl[{}] /  pow( pow(fit_ampl[{}],2)+pow({}*fit_ampl[{}],2) , 0.5)".format(xtal[0],ampbias,xtal[1],xtal[0],ampbias,xtal[1])
 
 	if args.x is not False:
 		# Chi2 cuts
 		Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut )
 		Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut )
-
-	if args.dt is not False:	
-		# Dt cuts
-		Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut + " && " + chi2_cut + " && " + amp_cut )
 
 	if args.a is not False:	
 		# Aeff cuts
@@ -154,18 +183,13 @@ def define_plots(filei, args):
 	Plts 	= []
 	xtal	= get_xtals(filei)
 	ampbias = amp_coeff(xtal)
-	Aeff 	= "fit_ampl["+xtal[0]+"]*" + ampbias + "*fit_ampl["+xtal[1]+"] /  pow( pow(fit_ampl["+xtal[0]+"],2)+pow(" + ampbias + "*fit_ampl["+xtal[1]+"],2) , 0.5)"
+	Aeff  = "fit_ampl[{}]*{}*fit_ampl[{}] /  pow( pow(fit_ampl[{}],2)+pow({}*fit_ampl[{}],2) , 0.5)".format(xtal[0],ampbias,xtal[1],xtal[0],ampbias,xtal[1])
 	
 	if args.x is not False:
 		# Chi2 bounds
 		bins  = [100, -5, 800]	
 		Plts.append(["fit_chi2["+xtal[0]+"]", "Fit_Chi2_"+xtal[0], bins[0], bins[1], bins[2]])
 		Plts.append(["fit_chi2["+xtal[1]+"]", "Fit_Chi2_"+xtal[1], bins[0], bins[1], bins[2]])
-
-	if args.dt is not False:
-		# Dt bounds
-		bins  = [40, -1, 0]
-		Plts.append(["fit_time["+xtal[0]+"]-fit_time["+xtal[1]+"]", "intercrystal_time_difference", bins[0], bins[1], bins[2]])
 
 	if args.a is not False:	
 		# Aeff bounds
@@ -183,6 +207,6 @@ def define_plots(filei, args):
 			sigbounds = args.sb.split(',')
 			bins    = [ int(sigbounds[0]), int(sigbounds[1]), int(sigbounds[2]), int(sigbounds[3]), int(sigbounds[4]), int(sigbounds[5]) ]
 
-		Plts.append(["fit_time["+xtal[0]+"]-fit_time["+xtal[1]+"]:" + Aeff+"/b_rms", "resolution_vs_aeff", bins[0], bins[1], bins[2], bins[3], bins[4], bins[5]])
+		Plts.append(["fit_time[{}]-fit_time[{}]:{}/b_rms".format(xtal[0],xtal[1],Aeff), "resolution_vs_aeff", bins[0], bins[1], bins[2], bins[3], bins[4], bins[5]])
 
 	return Plts
