@@ -1,5 +1,5 @@
 ## Michael Plesser
-## Last revised: July 18 2018
+## Last revised: July 30 2018
 
 from PlotterTools import *
 from array import array
@@ -72,8 +72,10 @@ def main():
 					h = TH1F(hname, plot_title, p[2], p[3], p[4])
 												
 					tree.Draw(p[0]+'>>'+hname, TCut(cut))
+
+					print "Number of events post-cuts:", int(h.GetEntries())
+
 					h.GetXaxis().SetTitle(p[1])
-					h.Fit("gaus")
 					c0.SaveAs(savepath + "images/" + file_title + '.png', "update")				# Save a .png of the canvas
 
 					histosavefile = TFile(savepath + "root_files/" + file_title + ".root", "update")

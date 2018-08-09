@@ -1,5 +1,5 @@
 ## Michael Plesser
-## Last revised: July 17 2018
+## Last revised: July 30 2018
 
 from ROOT import *
 from array import array
@@ -32,7 +32,7 @@ def analysis_path(args):
 		if args.d is not None:		# Directory specified
 			analysispath = args.d
 		else:				# Nothing specified. Use default analysis path
-			analysispath = "/eos/user/m/mplesser/timing_resolution/batch_ntuples/ECAL_H4_June2018_160MHz_18deg_EScan_edges/compiled_roots/"
+			analysispath = "/eos/user/m/mplesser/timing_resolution/batch_ntuples/ECAL_H4_June2018_120MHz_18deg_EScan_edges/compiled_roots/"
 
 		for file in os.listdir(analysispath):
 			if file.endswith('.root'):
@@ -65,8 +65,9 @@ def get_xtals(filei):
 
 ## Get the amplitude calibration coefficient
 def amp_coeff(xtal):
-	if   xtal[1] == 'C4':   amp_calibration = 0.944866
-	elif xtal[1] == 'C2':	amp_calibration = 0.866062
+	if   xtal[1] == 'C4':   amp_calibration = 0.948113 # 120 MHz
+	#if   xtal[1] == 'C4':  amp_calibration = 0.944866 # 160 MHz
+	#elif xtal[1] == 'C2':	amp_calibration = 0.866062 # 160 MHz
 	return str(amp_calibration)
 
 
@@ -104,11 +105,11 @@ def dt_adjustment(filei, tree, cut):
 	xtal 	     = get_xtals(filei)
 	ampbias      = amp_coeff(xtal)
 
-	Aeff  = "fit_ampl[{}]*{}*fit_ampl[{}] /  pow( pow(fit_ampl[{}],2)+pow({}*fit_ampl[{}],2) , 0.5)".format(xtal[0],ampbias,xtal[1],xtal[0],ampbias,xtal[1])
+	Aeff  = "fit_ampl[{}]*{}*fit_ampl[{}] /  pow( pow(fit_ampl[{}],2)+pow({}*fit_ampl[{}],2) , 0.5)/b_rms".format(xtal[0],ampbias,xtal[1],xtal[0],ampbias,xtal[1])
 	dt    = "fit_time[{}]-fit_time[{}]".format(xtal[0],xtal[1])
 	dampl = "fit_ampl[{}]-{}*fit_ampl[{}]".format(xtal[0],ampbias,xtal[1])
 
-	hadjust = TH2F('hadjust', '', 15, -1500, 1500, 300, -2, 2)
+	hadjust = TH2F('hadjust', '', 15, -1500, 1500, 100, -2, 2)
 	tree.Draw(dt+":"+dampl+">>hadjust", TCut(cut), "COLZ")
 	
 	hadjust.FitSlicesY()
@@ -125,7 +126,7 @@ def dt_adjustment(filei, tree, cut):
 	chi2  = str(hadjust_1.Chisquare(poly1))
 
 	print "Dt adjustment parameters: slope =",slope,", y-intercept =",dt0, ", chi2:",chi2
-	adjusted_plot0 = "(fit_time[{}]-fit_time[{}])-({}*({})):{}/b_rms".format(xtal[0],xtal[1],slope,dampl,Aeff)
+	adjusted_plot0 = "(fit_time[{}]-fit_time[{}])-({}*({})):{}".format(xtal[0],xtal[1],slope,dampl,Aeff)
 
 	return adjusted_plot0
 
@@ -139,15 +140,15 @@ def define_cuts(filei, args):
 
 	x_center, y_center = find_center(filei)
 
-	pos_val      = "3"
-	dampl_val    = "1000"
+	pos_val      = "5"
+	dampl_val    = "500"
 
-	fiber_cut    = "fabs(nFibresOnX[0]-2)<1 && fabs(nFibresOnY[0]-2)<1"
+	fiber_cut    = "fabs(nFibresOnX[0]-2)<2 && fabs(nFibresOnY[0]-2)<2"
 	clock_cut    = "time_maximum[{}]==time_maximum[{}]".format(xtal[0],xtal[1])
 	position_cut = "(fabs(X[0]-{})<{}) && (fabs(Y[0]-{})<{})".format(x_center,pos_val,y_center,pos_val)
 	dampl_cut    = "fabs(fit_ampl[{}]-{}*fit_ampl[{}] )<{}".format(xtal[0],ampbias,xtal[1],dampl_val)
 
-	chi2_bounds  = [[1, 100],[1,100]]	# chi2 bounds for [[C3],[C2/4]]
+	chi2_bounds  = [[1, 2000],[1,2000]]	# chi2 bounds for [[C3],[C2/4]]
 	if args.chicuts is not None:
 		chicuts = args.chicuts.split(',')
 		chi2_bounds = [ [int(chicuts[0]), int(chicuts[1])], [int(chicuts[2]), int(chicuts[3])] ]
@@ -157,18 +158,16 @@ def define_cuts(filei, args):
 	amp_max = "0"
 	if args.ampmax is not None:
 		amp_max = str(args.ampmax) 
-	amp_cut = "amp_max[{}]>{} && {}*amp_max[{}]>{}"format(xtal[0],amp_max,ampbias,xtal[1],amp_max)
-
-	Aeff  = "fit_ampl[{}]*{}*fit_ampl[{}] /  pow( pow(fit_ampl[{}],2)+pow({}*fit_ampl[{}],2) , 0.5)".format(xtal[0],ampbias,xtal[1],xtal[0],ampbias,xtal[1])
+	amp_cut = "amp_max[{}]>{} && {}*amp_max[{}]>{}".format(xtal[0],amp_max,ampbias,xtal[1],amp_max)
 
 	if args.x is not False:
-		# Chi2 cuts
+		# Chi2 cuts				
 		Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut )
 		Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut )
 
 	if args.a is not False:	
 		# Aeff cuts
-		Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut )	
+		Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut+ " && " + amp_cut + " && " + dampl_cut )	
 
 	if args.s is not False:	
 		# sigma cuts
@@ -183,7 +182,7 @@ def define_plots(filei, args):
 	Plts 	= []
 	xtal	= get_xtals(filei)
 	ampbias = amp_coeff(xtal)
-	Aeff  = "fit_ampl[{}]*{}*fit_ampl[{}] /  pow( pow(fit_ampl[{}],2)+pow({}*fit_ampl[{}],2) , 0.5)".format(xtal[0],ampbias,xtal[1],xtal[0],ampbias,xtal[1])
+	Aeff  = "fit_ampl[{}]*{}*fit_ampl[{}] /  pow( pow(fit_ampl[{}],2)+pow({}*fit_ampl[{}],2) , 0.5)/b_rms".format(xtal[0],ampbias,xtal[1],xtal[0],ampbias,xtal[1])
 	
 	if args.x is not False:
 		# Chi2 bounds
@@ -193,7 +192,7 @@ def define_plots(filei, args):
 
 	if args.a is not False:	
 		# Aeff bounds
-		bins  = [100, 0, 3500]		
+		bins  = [100, 0, 1500]		
 		if args.ab is not None:
 			abounds = args.ab.split(',')
 			bins    = [ int(abounds[0]), int(abounds[1]), int(abounds[2]) ]
@@ -202,11 +201,11 @@ def define_plots(filei, args):
 
 	if args.s is not False:
 		# Sigma vs Aeff bounds
-		bins  = [7, 100, 3500, 300, -2, 2]
+		bins  = [100, 0, 1500, 100, -2, 2]
 		if args.sb is not None:
 			sigbounds = args.sb.split(',')
 			bins    = [ int(sigbounds[0]), int(sigbounds[1]), int(sigbounds[2]), int(sigbounds[3]), int(sigbounds[4]), int(sigbounds[5]) ]
 
-		Plts.append(["fit_time[{}]-fit_time[{}]:{}/b_rms".format(xtal[0],xtal[1],Aeff), "resolution_vs_aeff", bins[0], bins[1], bins[2], bins[3], bins[4], bins[5]])
+		Plts.append(["fit_time[{}]-fit_time[{}]:{}".format(xtal[0],xtal[1],Aeff), "resolution_vs_aeff", bins[0], bins[1], bins[2], bins[3], bins[4], bins[5]])
 
 	return Plts
