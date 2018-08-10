@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<node id="top" description="ecal adapter board address table" fwinfo="endpoint;width=1">
+	<node id="ctrl" module="file://vice_ctrl.xml" address="0x0"/>
+	<node id="datapath" module="file://vice_datapath.xml" address="0x100"/>
+</node>
+

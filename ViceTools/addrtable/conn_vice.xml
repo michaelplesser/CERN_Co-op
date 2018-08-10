@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<connections>
+<!--	<connection id="VICE0" uri="chtcp-2.0://localhost:10203?target=192.168.128.23:50001" address_table="file://vice_infra.xml"/>
+	<connection id="VICE1" uri="chtcp-2.0://localhost:10203?target=192.168.128.24:50001" address_table="file://vice_infra.xml"/>
+	<connection id="VICE2" uri="chtcp-2.0://localhost:10203?target=192.168.128.25:50001" address_table="file://vice_infra.xml"/>
+	<connection id="VICE3" uri="chtcp-2.0://localhost:10203?target=192.168.128.26:50001" address_table="file://vice_infra.xml"/>
+	<connection id="VICE4" uri="chtcp-2.0://localhost:10203?target=192.168.128.19:50001" address_table="file://vice_infra.xml"/> -->
+        <connection id="VICE1" uri="chtcp-2.0://localhost:10203?target=192.168.8.1:50001"  address_table="file://vice_infra.xml"/>
+        <connection id="VICE2" uri="chtcp-2.0://localhost:10203?target=192.168.8.2:50001"  address_table="file://vice_infra.xml"/>
+        <connection id="VICE3" uri="chtcp-2.0://localhost:10203?target=192.168.8.3:50001"  address_table="file://vice_infra.xml"/>
+        <connection id="VICE5" uri="chtcp-2.0://localhost:10203?target=192.168.8.5:50001"  address_table="file://vice_infra.xml"/>
+        <connection id="VICE7" uri="chtcp-2.0://localhost:10203?target=192.168.8.7:50001"  address_table="file://vice_infra.xml"/>
+        <connection id="VICE8" uri="chtcp-2.0://localhost:10203?target=192.168.8.8:50001"  address_table="file://vice_infra.xml"/>
+        <connection id="VICE10" uri="chtcp-2.0://localhost:10203?target=192.168.8.10:50001" address_table="file://vice_infra.xml"/>
+        <connection id="VICE13" uri="chtcp-2.0://localhost:10203?target=192.168.8.13:50001" address_table="file://vice_infra.xml"/>
+</connections>
+

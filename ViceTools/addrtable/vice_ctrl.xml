@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<node description="vice control" fwinfo="endpoint;width=1">
+	<node id="ver" address="0x0" permission="r" description="firmware version yy.mm.dd.nn" fwinfo="endpoint;width=0"/>
+	<node id="conf" address="0x2" fwinfo="endpoint;width=1">
+		<node id="ctrl" address="0x0" fwinfo="endpoint;width=0">
+			<node id="nuke" permission="rw" mask="0x1" description="hard reset"/>
+			<node id="soft_rst" permission="rw" mask="0x2" description="soft reset"/>
+			<node id="rst40" permission="rw" mask="0x4" description="40mhz mmcm reset"/>
+			<node id="clk_sel" permission="rw" mask="0x8" description="40mhz mmcm source: ext_1, int_0"/>
+			<node id="sel_mode" permission="rw" mask="0x70" description="ADC enable"/> <!-- Warning: Despites its name, "mode" is ADC enable mode[2:0]. Recommended value: 0x7 -->
+			<node id="cal_trg" permission="rw" mask="0x80" description="calibration trigger"/>
+			<node id="force_mode" permission="rw" mask="0x100" description="force mode"/>
+			<node id="gpio" permission="rw" mask="0xf000" description="gpio"/>
+		</node>
+		<node id="stat" address="0x1" fwinfo="endpoint;width=0">
+			<node id="addr" permission="r" mask="0xf" description="serial number"/> 
+			<node id="mmcm_locked" permission="r" mask="0x10" description="40mhz mmcm locked"/>
+		</node>
+	</node> 
+	<node id="i2c" address="0x8" description="i2c master" fwinfo="endpoint;width=3">
+		<node id="i2c_pre_lo" address="0x0" description="Prescale low byte"/>
+		<node id="i2c_pre_hi" address="0x1" description="Prescale high byte"/>
+		<node id="i2c_ctrl" address="0x2" description="Control"/>
+		<node id="i2c_rxtx" address="0x3" description="Data"/>
+		<node id="i2c_cmdstatus" address="0x4" description="Command / status"/>
+	</node>
+</node>
+

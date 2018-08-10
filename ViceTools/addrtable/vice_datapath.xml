@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<node description="ecal io datapath with spy memories" fwinfo="endpoint;width=1">
+	<node id="mem_cnf" address="0x200" description="configuration of output" fwinfo="endpoint;width=1">
+		<node id="ctrl" address="0x0" fwinfo="endpoint;width=3">
+			<node id="ch0_set_val" address="0x0" permission="rw" description="set my fixed value for ch0" fwinfo="endpoint;width=0"/>
+			<node id="ch1_set_val" address="0x1" permission="rw" description="set my fixed value for ch1" fwinfo="endpoint;width=0"/>
+			<node id="ch2_set_val" address="0x2" permission="rw" description="set my fixed value for ch2" fwinfo="endpoint;width=0"/>
+			<node id="ch3_set_val" address="0x3" permission="rw" description="set my fixed value for ch3" fwinfo="endpoint;width=0"/>
+			<node id="ch4_set_val" address="0x4" permission="rw" description="set my fixed value for ch4" fwinfo="endpoint;width=0"/>
+			<node id="modes" address="0x5" permission="rw" description="0:pat 1:nor 2:cnt 3:val else:cnt" fwinfo="endpoint;width=0">
+				<node id="ch0_mode" permission="rw" mask="0x0000f" description="ch0 mode"/>
+				<node id="ch1_mode" permission="rw" mask="0x000f0" description="ch1 mode"/>
+				<node id="ch2_mode" permission="rw" mask="0x00f00" description="ch2 mode"/>
+				<node id="ch3_mode" permission="rw" mask="0x0f000" description="ch3 mode"/>
+				<node id="ch4_mode" permission="rw" mask="0xf0000" description="ch4 mode"/>
+			</node>
+			<node id="capture" address="0x6" permission="rw" mask="0x1f" description="capture fe data" fwinfo="endpoint;width=0"/>
+		</node>
+		<node id="stat" address="0x7" fwinfo="endpoint;width=3"/>
+	</node>
+	<node id="ch0_mem" address="0x08000" permission="rw" size="128" mode="block" description="capture ch0 data" fwinfo="endpoint;width=0"/>
+	<node id="ch1_mem" address="0x20000" permission="rw" size="128" mode="block" description="capture ch1 data" fwinfo="endpoint;width=0"/>
+	<node id="ch2_mem" address="0x28000" permission="rw" size="128" mode="block" description="capture ch2 data" fwinfo="endpoint;width=0"/>
+	<node id="ch3_mem" address="0x40000" permission="rw" size="128" mode="block" description="capture ch3 data" fwinfo="endpoint;width=0"/>
+	<node id="ch4_mem" address="0x48000" permission="rw" size="128" mode="block" description="capture ch4 data" fwinfo="endpoint;width=0"/>
+</node>
+

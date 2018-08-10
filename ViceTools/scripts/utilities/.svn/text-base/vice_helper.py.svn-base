@@ -1,0 +1,405 @@
+#!/usr/bin/python
+
+'''
+Script : vice_helper.py
+Version: 1.0.8
+Author : Nikitas Loukas
+'''
+
+import os
+import sys
+import uhal
+import time
+from termcolor import colored
+
+I2C_START = 0x80
+I2C_STOP  = 0x40
+I2C_RD    = 0x20
+I2C_WR    = 0x10
+I2C_NACK  = 0x08
+
+GENERAL_REG = 0x00
+OFFSET0_REG = 0x01
+OFFSET1_REG = 0x02
+OFFSET2_REG = 0x03
+OFFSET3_REG = 0x04
+DACCAL_REG  = 0x05
+
+MGPAa_DEVICE = 0x79
+MGPAb_DEVICE = 0x7a
+MGPAc_DEVICE = 0x7b
+MGPAd_DEVICE = 0x7c
+MGPAe_DEVICE = 0x7d
+
+class viceException(Exception):
+	# Attributes: msg  -- explanation of the error
+	def __init__(self, msg):
+		self.msg = msg
+	def __str__(self):
+		return self.msg
+
+class vice_helper:
+
+	def __init__(self,connection="file://connection.xml",device="vice"):
+		self._manager=uhal.ConnectionManager(connection)
+		self._hw=self._manager.getDevice(device)
+
+		# I2C registers
+		self._i2c_master    = self._hw.getNode("ctrl.i2c")
+		self._i2c_pre_lo    = self._i2c_master.getNode("i2c_pre_lo")
+		self._i2c_pre_hi    = self._i2c_master.getNode("i2c_pre_hi")
+		self._i2c_ctrl      = self._i2c_master.getNode("i2c_ctrl")
+		self._i2c_rxtx      = self._i2c_master.getNode("i2c_rxtx")
+		self._i2c_cmdstatus = self._i2c_master.getNode("i2c_cmdstatus")
+
+		# Memory registers
+		self._datapath = self._hw.getNode("datapath")
+		self._capture  = self._datapath.getNode("mem_cnf.ctrl.capture")
+		self._ch0_mode = self._datapath.getNode("mem_cnf.ctrl.modes.ch0_mode")
+		self._ch1_mode = self._datapath.getNode("mem_cnf.ctrl.modes.ch1_mode")
+		self._ch2_mode = self._datapath.getNode("mem_cnf.ctrl.modes.ch2_mode")
+		self._ch3_mode = self._datapath.getNode("mem_cnf.ctrl.modes.ch3_mode")
+		self._ch4_mode = self._datapath.getNode("mem_cnf.ctrl.modes.ch4_mode")
+		self._ch0_mem  = self._datapath.getNode("ch0_mem")
+		self._ch1_mem  = self._datapath.getNode("ch1_mem")
+		self._ch2_mem  = self._datapath.getNode("ch2_mem")
+		self._ch3_mem  = self._datapath.getNode("ch3_mem")
+		self._ch4_mem  = self._datapath.getNode("ch4_mem")
+
+		# Firmware version info
+		self._fw_version = self._hw.getNode("ctrl.ver")
+		self._fw_val     = self._fw_version.read()
+		self._hw.dispatch()
+		self._nn = '{0:08x}'.format(int(self._fw_val.value()))[6:8]
+		self._dd = '{0:08x}'.format(int(self._fw_val.value()))[4:6]
+		self._mm = '{0:08x}'.format(int(self._fw_val.value()))[2:4]
+		self._yy = '{0:08x}'.format(int(self._fw_val.value()))[0:2]
+
+		# STAT/CTRL registers
+		self._control 	  = self._hw.getNode("ctrl.conf.ctrl")
+		self._nuke 	  = self._control.getNode("nuke")
+		self._soft_rst    = self._control.getNode("soft_rst")
+		self._rst40 	  = self._control.getNode("rst40")
+		self._clk_sel 	  = self._control.getNode("clk_sel")
+		self._sel_mode    = self._control.getNode("sel_mode")
+		self._force_mode  = self._control.getNode("force_mode")
+		self._gpio 	  = self._control.getNode("gpio")
+
+		self._status 	  = self._hw.getNode("ctrl.conf.stat")
+		self._addr 	  = self._status.getNode("addr")
+		self._mmcm_locked = self._status.getNode("mmcm_locked")
+
+		self.i2c_init()
+
+	def logo_id(self,board):
+		print
+		print colored('='*44, 'green')
+		print colored('__     _____ ____ _____ ', 'green')
+		print colored('\ \   / /_ _/ ___| ____|', 'green')
+		print colored(' \ \ / / | | |   |  _|  ', 'green')
+		print colored('  \ V /  | | |___| |___ ', 'green')
+		print colored('   \_/  |___\____|_____|', 'green')
+		print colored('-'*44, 'green')
+		print colored('--> Successful connected to '+board+' <--', 'green')
+		print colored('-'*44, 'green')
+		sn_val = self._addr.read()
+		self._hw.dispatch()
+		print colored("Board SN:   %d" % (sn_val.value()), 'blue')
+		print colored("Board IP:   192.168.8.%d " % (0x10+sn_val.value()), 'blue')
+		print colored("FW version: v1_%s_%s" % (self._nn[0],self._nn[1]), 'blue')
+		print colored("FW builded: %s/%s/20%s" % (self._dd,self._mm,self._yy), 'blue')
+		print colored('='*44, 'green')
+
+# I2C related functions
+	def i2c_init(self):
+		prescaler = 0x80
+		self._i2c_pre_lo.write(prescaler&0xff)
+		self._i2c_pre_hi.write( (prescaler>>8)&0xff)
+		self._i2c_ctrl.write(0x80)
+		self._hw.dispatch()
+		self._i2c_cmdstatus.write(I2C_STOP)
+		self._hw.dispatch()
+
+	def _i2c_wait_ready(self):
+		start_time = time.time()
+		timeout    = 3	# Timeout (in seconds)
+		while int(time.time()-start_time) < timeout:
+			time.sleep(0.002)
+			val = self._i2c_cmdstatus.read()
+			self._hw.dispatch()
+			if not val&0x2 :
+				return int(val)
+		print colored("I2C timeout, aborting...",'red')
+		sys.exit(0)
+
+	def i2c_scan(self):
+		print colored("Scanning i2c addresses ... ", 'yellow')
+		print
+		for deviceAddr in range(128):
+			self._i2c_rxtx.write((deviceAddr<<1)|0x0)
+			self._i2c_cmdstatus.write(I2C_START|I2C_STOP|I2C_RD) # start stop read ### ???
+			self._hw.dispatch()
+			val=self._i2c_wait_ready()
+
+			if not val&0x2 :
+				if val&0x80:
+					pass
+				else:
+					print "0x%02x ACK"%deviceAddr
+			self._i2c_cmdstatus.write(I2C_STOP)
+
+	def _i2c_write_reg(self,deviceAddr,regAddr,regVal):
+		self._i2c_rxtx.write((deviceAddr<<1)|0x0) # write
+		self._i2c_cmdstatus.write(I2C_START|I2C_WR)
+		self._hw.dispatch()
+		val=self._i2c_wait_ready()
+		if val&0x80:
+			raise viceException("I2C Write register: Device 0x%02x not present."%deviceAddr)
+		self._i2c_rxtx.write(regAddr)
+		self._i2c_cmdstatus.write(I2C_WR)
+		self._hw.dispatch()
+		val=self._i2c_wait_ready()
+		if val&0x80:
+			raise viceException("I2C Write register: Device 0x%02x not present."%deviceAddr)
+
+		self._i2c_rxtx.write(regVal)
+		self._i2c_cmdstatus.write(I2C_WR|I2C_STOP)
+		self._hw.dispatch()
+		val=self._i2c_wait_ready()
+		if val&0x80: 
+			print "0c Device 0x%02x not present."%deviceAddr
+		return
+
+	def _i2c_read_reg(self,deviceAddr,regAddr):
+		self._i2c_rxtx.write((deviceAddr<<1)|0x0) # write
+		self._i2c_cmdstatus.write(I2C_START|I2C_WR)
+		self._hw.dispatch()
+		val=self._i2c_wait_ready()
+		if val&0x80:
+			raise viceException("Device 0x%02x not present."%deviceAddr)
+		self._i2c_rxtx.write(regAddr)
+		self._i2c_cmdstatus.write(I2C_WR)
+		self._hw.dispatch()
+		val=self._i2c_wait_ready()
+		if val&0x80:
+			raise viceException("Device 0x%02x not present."%deviceAddr)
+		self._i2c_rxtx.write((deviceAddr<<1)|0x1) # read
+		self._i2c_cmdstatus.write(I2C_START|I2C_WR)
+		self._hw.dispatch()
+		val=self._i2c_wait_ready()
+		if val&0x80:
+			raise viceException("Device 0x%02x not present."%deviceAddr)
+
+		self._i2c_cmdstatus.write(I2C_RD|I2C_NACK)
+		self._hw.dispatch()
+		val=self._i2c_wait_ready()
+		regval=self._i2c_rxtx.read()
+		self._hw.dispatch()
+
+		self._i2c_cmdstatus.write(0x40)
+		self._hw.dispatch()
+		val=self._i2c_wait_ready()
+		return int(regval)
+
+
+# Control functions
+
+	def vice_status(self):
+		sn_val 		= self._addr.read()		
+		clk_sel_val 	= self._clk_sel.read()
+		sel_mode_val    = self._sel_mode.read()
+		force_mode_val  = self._force_mode.read()
+		mmcm_locked_val = self._mmcm_locked.read()
+		self._hw.dispatch()
+
+		print colored("Printing status ...\n",'green')
+		print colored(44*"=",'green')
+		print colored("STATUS of SN: %01x --> IP: 192.168.8.%d " % (sn_val.value(), (sn_val.value())),'green')
+		print colored(44*"-",'green')
+		print colored("Firmware version: v1_%s_%s   Date: %s/%s/20%s" % (self._nn[0],self._nn[1],self._dd,self._mm,self._yy))
+		print colored(44*"-",'green')
+		print colored("LHC CLOCK SOURCE ext_1, int_0\t: 0x%01x" %(clk_sel_val.value()), 'blue')
+		print colored("MMCM LOCKED yes_1, no_0\t\t: 0x%01x" %(mmcm_locked_val.value()), 'blue')
+		print colored("ADC FORCED yes_1, no_0\t\t: 0x%01x" %(force_mode_val.value()), 'blue')
+		print colored("ADC MODE (valid when FORCED==1)\t: 0x%01x" %(sel_mode_val.value()), 'blue')
+		print colored(44*"=",'green')
+		print
+
+	def vice_config(self):
+		print
+		print colored("Enter the new configuration parameters",'yellow')
+		clk_source_hex = hex(input('Enter lhc clock source. ext_1 int_0: '))
+		force_mode_hex = hex(input('Force ADC mode? yes_1 no_0: '))
+		sel_mode_hex   = hex(input('Select ADC mode 0-7 (Recommended value: 7): '))
+
+		self._rst40.write(0x1)
+		self._hw.dispatch()
+		self._clk_sel.write(int(clk_source_hex,16))
+		self._force_mode.write(int(force_mode_hex,16))
+		self._hw.dispatch()
+		self._force_mode.write(1)
+		self._sel_mode.write(int(sel_mode_hex,16))
+		self._hw.dispatch()
+		self._sel_mode.write(int(7)) # Warning: Despites its name, "mode" is ADC enable mode[2:0].
+		self._hw.dispatch()
+		
+		print
+		self._rst40.write(0x0)
+		self._hw.dispatch()
+		print colored("Reseting clocks ...",'yellow')
+		os.system("sleep 0.5")
+		
+		lhc_clk_rst_val = self._rst40.read()
+		lhc_clk_src_val = self._clk_sel.read()
+		lhc_clk_lck_val = self._mmcm_locked.read()
+		sn_val = self._addr.read()
+		self._hw.dispatch()
+
+		if lhc_clk_lck_val == 1:
+			print colored("MMCM locked",'blue')
+		else:
+			print colored("MMCM Locked failed!",'red')
+
+		print
+		print colored(44*"=",'green')
+		print colored("STATUS of SN: %01x --> IP: 129.168.8.%d " % (sn_val.value(), (0x0+sn_val.value())),'green')
+		print colored(44*"-",'green')
+		print colored("Firmware version: v1_%s_%s   Date: %s/%s/20%s" % (self._nn[0],self._nn[1],self._dd,self._mm,self._yy))
+		print colored(44*"-",'green')
+		print "LHC clock source ext_1, int_0\t:", '0x%01x'%lhc_clk_src_val.value()
+		print "MMCM locked\t\t\t:", '0x%01x'%lhc_clk_lck_val.value()
+		print colored(44*"=",'green')
+		print
+
+	def vice_capture(self):
+		rd_bxs = input("Enter number of bunch crossing frames to print:  ")
+		print
+		print colored(44*"=",'green')
+		print colored("Firmware version: v1_%s_%s   Date: %s/%s/20%s" % (self._nn[0],self._nn[1],self._dd,self._mm,self._yy))
+		print colored(44*"=",'green')
+		print
+
+		print colored("Enter vice running mode",'yellow')
+		fe_ch_mode_hex = hex(input('VFEdata_0, Fixed_pattern_1, Counter_2, MyValue_3, injectBram_4, VFEdata_others :  '))
+		self._ch0_mem.write(int(fe_ch_mode_hex,16))
+		self._ch1_mem.write(int(fe_ch_mode_hex,16))
+		self._ch2_mem.write(int(fe_ch_mode_hex,16))
+		self._ch3_mem.write(int(fe_ch_mode_hex,16))
+		self._ch4_mem.write(int(fe_ch_mode_hex,16))
+		self._hw.dispatch()
+		print
+
+		self._capture.write(0x1)
+		self._hw.dispatch()
+		os.system("sleep 0.1")
+	
+		self._capture.write(0x0)
+		self._hw.dispatch()
+
+		memin = [ [], [], [], [], [] ]
+
+		# capture ch 0
+		memin[0] = self._ch0_mem.readBlock(rd_bxs)
+		self._hw.dispatch()
+
+		# capture ch 1
+		memin[1] = self._ch1_mem.readBlock(rd_bxs)
+		self._hw.dispatch()
+
+		# capture ch 2
+		memin[2] = self._ch2_mem.readBlock(rd_bxs)
+		self._hw.dispatch()
+
+		# capture ch 3
+		memin[3] = self._ch3_mem.readBlock(rd_bxs)
+		self._hw.dispatch()
+
+		# capture ch 4
+		memin[4] = self._ch4_mem.readBlock(rd_bxs)
+		self._hw.dispatch()
+
+		addr = 0
+		print '\t\tCH0  CH1  CH2  CH3  CH4'
+		for i in range(addr,rd_bxs):
+			print ' bunch#',addr+1,   '\t',
+			for j in range(len(memin)):
+				print '{0:08x}'.format(int(memin[j][i]))[4:8],
+			print
+			addr=addr+1
+		print
+
+	def vice_reset_clock(self,clksrc):
+		print
+		self._rst40.write(0x1)
+		self._hw.dispatch()
+		if   clksrc == 'int':
+			self._clk_sel.write(0x0)
+			self._hw.dispatch()
+		elif clksrc == 'ext':
+			self._clk_sel.write(0x1)
+			self._hw.dispatch()
+		else:
+			sys.exit("Invalid clock source. Valid choices are: int, ext \nAborting...\n ")
+		print colored("Reseting 40 MHz clock ...",'yellow')
+		self._rst40.write(0x0)
+		self._hw.dispatch()
+		self.vice_status()
+
+	def vice_reset_gbtx(self):
+		self._gpio.write(0x0)
+		self._hw.dispatch()
+		print colored("Reseting GBTx chip ...",'yellow')
+		os.system("sleep 0.5")
+		
+		self._gpio.write(0xf)
+		self._hw.dispatch()
+		print colored("GBTx chip reset",'green')
+
+	def vice_fmode(self,f_mode):
+		print
+		if f_mode == 'none':
+			self._force_mode.write(0x0)
+		else:
+			self._force_mode.write(0x1)
+			mode_list = [str(hex(x)) for x in range(0,8)]
+			if (f_mode in mode_list) == True:
+				self._sel_mode.write(int(f_mode,16))
+			else:
+				sys.exit("Invalid mode option: "+f_mode+". Valid are: none,0x0,0x1,0x2,0x3,0x4,0x5,0x6,0x7 ")
+		self._hw.dispatch()
+		print colored("Force ADC mode to: %s " % (f_mode),'green')
+		self.vice_status()
+		print
+
+	def vice_rmgpas(self,rmgpas):
+		print  colored("Reading MPGA i2c registers ...", 'green'),'\n'
+		if   rmgpas == 'a': MGPA_DEVICE=MGPAa_DEVICE
+		elif rmgpas == 'b': MGPA_DEVICE=MGPAb_DEVICE
+		elif rmgpas == 'c': MGPA_DEVICE=MGPAb_DEVICE
+		elif rmgpas == 'd': MGPA_DEVICE=MGPAb_DEVICE
+		elif rmgpas == 'e': MGPA_DEVICE=MGPAb_DEVICE
+		else:	
+			sys.exit("Invalid MGPA ID: "+rmgpas)
+		general=self._i2c_read_reg(MGPA_DEVICE,GENERAL_REG)
+		offset0=self._i2c_read_reg(MGPA_DEVICE,OFFSET0_REG)
+		offset1=self._i2c_read_reg(MGPA_DEVICE,OFFSET1_REG)
+		offset2=self._i2c_read_reg(MGPA_DEVICE,OFFSET2_REG)
+		daqcal =self._i2c_read_reg(MGPA_DEVICE,DACCAL_REG)
+		print colored("Calibrate pulse enable of MGPA %s is:\t\t 0x%02x" %((rmgpas),(general)),'blue')
+		print colored("Low gain channel offset current of MGPA %s is:\t 0x%02x" %((rmgpas),(offset0)),'blue')
+		print colored("Mid gain channel offset current of MGPA %s is:\t 0x%02x" %((rmgpas),(offset1)),'blue')
+		print colored("High gain channel offset current of MGPA %s is:\t 0x%02x" %((rmgpas),(offset2)),'blue')
+		print colored("Calibration pulse magnitude of MGPA %s is:\t 0x%02x" %((rmgpas),(daqcal)),'blue')
+		print
+
+	def vice_wmgpas(self,wmgpas,regaddr,regvalue):
+		print  colored("Writing MPGA register address %s the value %s " %((regaddr),(regvalue)),'green')
+		if   wmgpas == 'a': self._i2c_write_reg(MGPAa_DEVICE,regaddr,regvalue)
+		elif wmgpas == 'b': self._i2c_write_reg(MGPAb_DEVICE,regaddr,regvalue)
+		elif wmgpas == 'c': self._i2c_write_reg(MGPAc_DEVICE,regaddr,regvalue)
+		elif wmgpas == 'd': self._i2c_write_reg(MGPAd_DEVICE,regaddr,regvalue)
+		elif wmgpas == 'e': self._i2c_write_reg(MGPAe_DEVICE,regaddr,regvalue)
+		else:
+			sys.exit("Invalid MGPA ID: "+wmgpas)
+		self.vice_rmgpas(wmgpas)
+
