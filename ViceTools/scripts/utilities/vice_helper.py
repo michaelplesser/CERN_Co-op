@@ -12,7 +12,6 @@ import uhal
 import time
 from termcolor import colored
 
-import csv
 
 I2C_START = 0x80
 I2C_STOP  = 0x40
@@ -95,6 +94,8 @@ class vice_helper:
 
 # Print outs
 	def logo_id(self,board):
+		sn_val = self._addr.read()
+		self._hw.dispatch()
 		print
 		print colored('='*44, 'green')
 		print colored('__     _____ ____ _____ ', 'green')
@@ -105,12 +106,10 @@ class vice_helper:
 		print colored('-'*44, 'green')
 		print colored('--> Successful connected to '+board+' <--', 'green')
 		print colored('-'*44, 'green')
-		sn_val = self._addr.read()
-		self._hw.dispatch()
-		print colored("Board SN:   %d" % (sn_val.value()),                     'blue')
-		print colored("Board IP:   192.168.8.%d " % (0x10+sn_val.value()),     'blue')
-		print colored("FW version: v1_%s_%s" % (self._nn[0],self._nn[1]),      'blue')
-		print colored("FW builded: %s/%s/20%s" % (self._dd,self._mm,self._yy), 'blue')
+		print colored("Board SN:   %d"            % (sn_val.value()),             'blue')
+		print colored("Board IP:   192.168.8.%d " % (0x10+sn_val.value()),        'blue')
+		print colored("FW version: v1_%s_%s"      % (self._nn[0],self._nn[1]),    'blue')
+		print colored("FW builded: %s/%s/20%s"    % (self._dd,self._mm,self._yy), 'blue')
 		print colored('='*44, 'green')
 
 	def run_mode_printout(self):
@@ -154,6 +153,16 @@ class vice_helper:
 		print "\t d \t(mgpa_D)"
 		print "\t e \t(mgpa_E)\n"
 
+# Take an input but assign default value if entry left blank
+	def input_with_default(self, msg, val):	# Take an input but assign default value if entry left blank
+		proceed = False 				# When proceed is True, the fn has a valid input
+		while proceed == False:
+			proceed  = True
+			try: var = input(msg)	
+			except SyntaxError: var = val		# Default if input left blank
+			except NameError:   proceed = False	# If an invalid input is given, don't proceed 
+		return var
+
 # Control functions
 	def vice_status(self):
 		sn_val 		= self._addr.read()		
@@ -165,27 +174,23 @@ class vice_helper:
 
 		print colored("Printing status ...\n",'green')
 		print colored(44*"=",'green')
-		print colored("STATUS of SN: %01x --> IP: 192.168.8.%d " % (sn_val.value(), (sn_val.value())),'green')
+		print colored("STATUS of SN: %01x --> IP: 192.168.8.%d "      % (sn_val.value(), (sn_val.value())),'green')
 		print colored(44*"-",'green')
 		print colored("Firmware version: v1_%s_%s   Date: %s/%s/20%s" % (self._nn[0],self._nn[1],self._dd,self._mm,self._yy))
 		print colored(44*"-",'green')
-		print colored("LHC CLOCK SOURCE ext_1, int_0\t: 0x%01x" %(clk_sel_val.value()),    'blue')
-		print colored("MMCM LOCKED yes_1, no_0\t\t: 0x%01x" %(mmcm_locked_val.value()),    'blue')
-		print colored("ADC FORCED yes_1, no_0\t\t: 0x%01x" %(force_mode_val.value()),      'blue')
-		print colored("ADC MODE (valid when FORCED==1)\t: 0x%01x" %(sel_mode_val.value()), 'blue')
+		print colored("LHC CLOCK SOURCE ext_1, int_0\t: 0x%01x"       % (clk_sel_val.value()),     'blue')
+		print colored("MMCM LOCKED yes_1, no_0\t\t: 0x%01x"           % (mmcm_locked_val.value()), 'blue')
+		print colored("ADC FORCED yes_1, no_0\t\t: 0x%01x"            % (force_mode_val.value()),  'blue')
+		print colored("ADC MODE (valid when FORCED==1)\t: 0x%01x"     % (sel_mode_val.value()),    'blue')
 		print colored(44*"=",'green')
 		print
 		raw_input("Press enter to continue")
 
 	def vice_config(self):
 		print colored("\nEnter the new configuration parameters",'yellow')
-
-		try: clk_source_hex = hex(input('Enter lhc clock source (Default: int): ext=1 int=0: '))
-		except SyntaxError: clk_source_hex = hex(0)						# Default if input left blank
-		try: force_mode_hex = hex(input('Force ADC mode? (Default: no) yes=1 no=0: '))
-		except SyntaxError: force_mode_hex = hex(0)						# Default if input left blank
-		try: sel_mode_hex   = hex(input('Select ADC mode 0-7 (Recommended value: 7): '))
-		except SyntaxError: sel_mode_hex   = hex(7)						# Default if input left blank
+		clk_source_hex = hex(self.input_with_default('Enter lhc clock source (Default: int): ext=1 int=0: ', 0))
+		force_mode_hex = hex(self.input_with_default('Force ADC mode? (Default: no) yes=1 no=0: '          , 0))
+		sel_mode_hex   = hex(self.input_with_default('Select ADC mode 0-7 (Recommended value: 7): '        , 7))
 
 		self._rst40.write(0x1)
 		self._hw.dispatch()

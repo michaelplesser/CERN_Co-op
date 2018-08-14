@@ -35,8 +35,12 @@ def input_arguments():
 	return parser.parse_args()
 
 def input_with_default(msg, val):	# Take an input but assign default value if entry left blank
-	try: var = input(msg)		
-	except SyntaxError: var = val	# Default if input left blank
+	proceed = False 				# When proceed is True, the fn has a valid input
+	while proceed == False:
+		proceed  = True
+		try: var = input(msg)	
+		except SyntaxError: var = val		# Default if input left blank
+		except NameError:   proceed = False	# If an invalid input is given, don't proceed 
 	return var
 
 def main():

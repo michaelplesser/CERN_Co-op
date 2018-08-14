@@ -54,10 +54,10 @@ def main():
 		os.mkdir(args.directory+"/compiled_roots")
 
 	# Build the 'hadd' command and run
-	for i, p in  enumerate(mastertable):									# Iterate over positions: i=index, p=dict_key (position)
+	for p in mastertable:									# Iterate over positions: p=dict_key (position)
 		compiledoutfile = args.directory + "compiled_roots/" + name_base + "compiled_" + p + ".root"	# Name of the compiled hadd output file
 		compiledcommand = ["hadd",'-f', compiledoutfile]					# -f flag forces save file overwrite if necessary	
-		for j, e in enumerate(mastertable[p]): 								# Iterate over energies : j=index, e=dict_key (energy)
+		for e in mastertable[p]: 								# Iterate over energies : e=dict_key (energy)
 			if len(mastertable[p][e]) != 0:								# Only create an hadd instance if there are actually files to hadd
 				outfile = args.directory + "reco_roots/" + name_base + e + "_" + p + ".root"	# Name of the individual (energy) hadd output files
 				command = ["hadd",'-f', outfile]					# -f flag forces save file overwrite if necessary				
