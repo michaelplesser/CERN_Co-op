@@ -12,22 +12,26 @@ from PlotterTools import PlotterTools
 def input_arguments():
 	parser = argparse.ArgumentParser(description='Control plotting and cuts for inter-crystal time resolution studies')
 	
-	parser.add_argument('-d'  ,  type=str,            		help='Use all the files in the given directory for analysis ')
-	parser.add_argument('-f'  ,  type=str,            		help='Use the given file for analysis(use the absolute path)')
-	parser.add_argument('-e'  ,  type=str,            		help='Energy to use for analysis (IE "250GeV" or "compiled")')
+	parser.add_argument('-d'  ,    type=str,            					help='Use all the files in the given directory for analysis ')
+	parser.add_argument('-f'  ,    type=str,            					help='Use the given file for analysis(use the absolute path)')
+	parser.add_argument('-e'  ,    type=str,            					help='Energy to use for analysis (IE "250GeV" or "compiled")')
+	parser.add_argument('--freq',  type=str, 		 default='160MHz',		help='Sampling frequency,   IE "160MHz" or "120 MHz"')
+	parser.add_argument('--temp',  type=str, 		 default='18deg' , 		help='Sampling temperature, IE "18deg"  or "9deg"')
 	
-	parser.add_argument('-x'  , 	 	 action='store_true', 	help='Create plots for fit_chi2[C3] and fit_chi2[<2nd xtal>]')
-	parser.add_argument('-a'  , 	 	 action='store_true', 	help='Create effective voltage (Aeff) plot')
-	parser.add_argument('-s'  , 	 	 action='store_true', 	help='Create resolution versus  Aeff  plot')
+	parser.add_argument('-x'  , 	 	 action='store_true', 				help='Create plots for fit_chi2[C3] and fit_chi2[<2nd xtal>]')
+	parser.add_argument('-a'  , 	 	 action='store_true', 				help='Create effective voltage (Aeff) plot')
+	parser.add_argument('-s'  , 	 	 action='store_true', 				help='Create resolution versus  Aeff  plot')
 	
-	parser.add_argument('-q'   ,     	 action='store_true', 	help='Use a quantile method for the resolution versus Aeff plot')
-	parser.add_argument('--fit', 	 	 action='store_true', 	help='Fit using a user function the resolution versus Aeff plot')
+	parser.add_argument('-q'   ,     	 action='store_true', 				help='Use a quantile method for the resolution versus Aeff plot')
+	parser.add_argument('--fit', 	 	 action='store_true', 				help='Fit using a user function the resolution versus Aeff plot')
 
-	parser.add_argument('--sb',  	 	 action='store',    	help='Sigma plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
-	parser.add_argument('--ab',  	 	 action='store',    	help='Aeff plot bounds,  "nbins,Aeffmin,Aeffmax"')
+	parser.add_argument('--sb', 	 	 action='store', default='100,0,2300,100,-2,2',	help='Sigma plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
+	parser.add_argument('--ab',  	 	 action='store', default='100,0,2300',		help='Aeff plot bounds,  "nbins,Aeffmin,Aeffmax"')
 
-	parser.add_argument('--xc', '--chicuts', action='store',	help='Chi squared cuts, "lb1,ub1,lb2,ub2"')
-	parser.add_argument('--am', '--ampmax' , action='store',	help='Amp_max lower bound, used for cuts ')
+	parser.add_argument('--xc', '--chicuts', action='store', default='1,100,1,100',		help='Chi squared cuts, "lb1,ub1,lb2,ub2"')
+	parser.add_argument('--am', '--ampmax' , action='store', default=0,			help='Amp_max lower bound, used for cuts ')
+	parser.add_argument('--da', 		 action='store', default=5000, 			help='dampl cut, max allowed difference in fit_ampl between xtals')
+	parser.add_argument('--pc', '--poscut' , action='store', default=3, 			help='Position cut, how large an area around target center to accept')
 
 	if len(sys.argv[1:])==0: 	# Print help if no options given	
 		parser.print_help()
@@ -69,28 +73,30 @@ def main():
 
 					# Create the desired plot
 					hname = f[1] +'_'+str(fi) 
-					h = TH1F(hname, f[1]+'_'+p[1], p[2], p[3], p[4])				
+					h     = TH1F(hname, f[1]+'_'+p[1], p[2], p[3], p[4])	
+			
 					tree.Draw(p[0]+'>>'+hname, TCut(cut))
-
-					print "Number of events post-cuts:", int(h.GetEntries())
+					print "\nNumber of events post-cuts:", int(h.GetEntries())
 
 					# Save plots
 					h.GetXaxis().SetTitle(p[1])
 					pt.save_files(c0, savepath, f[1], '_'+p[1])
+
+
 
 				if len(p)==8:	# -s is for a TH2F and requires 8 params
 					
 					# Use a linear adjustment to account for the "walking-mean" effect resulting from largely uneven Aeff's
 					p[0] = pt.dt_adjustment(f[0],tree,cut)
 					
-					# Create the heat map
+					# Create the color map
 					if args.q == True:	 # Use quantiles
 						quantiles = pt.find_quantiles(p,cut,tree)
 						hh = TH2F('hh', f[1]+'_dt_vs_aeff_heatmap', p[2], quantiles , p[5], p[6], p[7])
 					else:			# Use fixed width bins
 						hh = TH2F('hh', f[1]+'_dt_vs_aeff_heatmap', p[2], p[3], p[4], p[5], p[6], p[7])		
 					tree.Draw(p[0]+">>hh", TCut(cut), "COLZ")
-					print "Number of events post-cuts:", int(hh.GetEntries())
+					print "\nNumber of events post-cuts:", int(hh.GetEntries())
 
 					# Save plots
 					pt.save_files(c0, savepath, f[1], '_dt_vs_aeff_heatmap')
@@ -105,7 +111,7 @@ def main():
 					if args.fit == True: pt.fit_resolution(hh_2)
 
 					# Save plots
-					pt.save_files(c0, savepath, f[1], '')
+					pt.save_files(c0, savepath, f[1], '_resolution_vs_aeff')
 
 					hh.Delete()
 					del c0

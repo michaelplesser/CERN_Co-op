@@ -2,6 +2,7 @@
 
 import os
 import sys
+import shutil
 import argparse
 import subprocess
 from ROOT import *
@@ -31,6 +32,12 @@ def main():
 	C3upenergies   = { '25GeV' : [], '50GeV' : [], '100GeV' : [], '150GeV' : [], '200GeV' : [], '250GeV' : [] }
 	C3downenergies = { '25GeV' : [], '50GeV' : [], '100GeV' : [], '150GeV' : [], '200GeV' : [], '250GeV' : [] }
 	mastertable    = { 'C3up'  : C3upenergies, 'C3down' : C3downenergies}
+	
+	# Create output directories if none exist
+	if os.path.exists(args.directory+"reco_roots") == False:
+		os.mkdir(args.directory+"/reco_roots")
+	if os.path.exists(args.directory+"compiled_roots") == False:
+		os.mkdir(args.directory+"/compiled_roots")
 
 	# Get position and energy info on all files in the directory, and sort them into the mastertable (dict)
 	for filei in os.listdir(args.directory):		# Iterate over all files in the given directory
@@ -44,23 +51,19 @@ def main():
 			else: sys.exit("Unrecognized position, aborting...")
 			energy   = str(int(infotree.Energy))+'GeV'
 			print "Position:\t",position,"\tEnergy:\t",energy
-			mastertable[position][energy].append(filei)	
+			mastertable[position][energy].append(filei)		# Add each file under the proper energy and position indices
+			shutil.copy(filei, args.directory+"/reco_roots")	# Make a copy of the reconstructed root file under /reco_roots
 	print
 	
-	# Create output directories if none exist
-	if os.path.exists(args.directory+"reco_roots") == False:
-		os.mkdir(args.directory+"/reco_roots")
-	if os.path.exists(args.directory+"compiled_roots") == False:
-		os.mkdir(args.directory+"/compiled_roots")
 
 	# Build the 'hadd' command and run
-	for p in mastertable:									# Iterate over positions: p=dict_key (position)
-		compiledoutfile = args.directory + "compiled_roots/" + name_base + "compiled_" + p + ".root"	# Name of the compiled hadd output file
-		compiledcommand = ["hadd",'-f', compiledoutfile]					# -f flag forces save file overwrite if necessary	
-		for e in mastertable[p]: 								# Iterate over energies : e=dict_key (energy)
-			if len(mastertable[p][e]) != 0:								# Only create an hadd instance if there are actually files to hadd
-				outfile = args.directory + "reco_roots/" + name_base + e + "_" + p + ".root"	# Name of the individual (energy) hadd output files
-				command = ["hadd",'-f', outfile]					# -f flag forces save file overwrite if necessary				
+	for p in mastertable:												# Iterate over positions: p=dict_key (position)
+		compiledoutfile = args.directory + "compiled_roots/" + name_base + "compiled_" + p + ".root"		# Name of the compiled hadd output file
+		compiledcommand = ["hadd",'-f', compiledoutfile]							# -f flag forces save file overwrite if necessary	
+		for e in mastertable[p]: 										# Iterate over energies : e=dict_key (energy)
+			if len(mastertable[p][e]) != 0:									# Only create an hadd instance if there are actually files to hadd
+				outfile = args.directory + "compiled_roots/" + name_base + e + "_" + p + ".root"	# Name of the individual (energy) hadd output files
+				command = ["hadd",'-f', outfile]							# -f flag forces save file overwrite if necessary				
 				for filei in mastertable[p][e]:
 					command.append(args.directory+filei) 		# Append the name of each file to be hadd-ed for each energy
 					compiledcommand.append(args.directory+filei) 	# Append the name of each file to be hadd-ed all compiled

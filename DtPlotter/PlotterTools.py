@@ -29,13 +29,16 @@ class PlotterTools:
 
 		self.chicuts = self.args.xc
 		self.ampmax  = self.args.am
+		self.dampcut = self.args.da
+		self.poscut  = self.args.pc
+		
+		self.freq    = self.args.freq
+		self.temp    = self.args.temp
 
 	## Output location for plots
 	def output_location(self):
-		#if os.getcwd().split('/')[-1] != "DtPlotter":
-		#	sys.exit("Error: Please run from within DtPlotter directory!")
-		savepath = os.getcwd() + "/plots/"
-		if os.path.exists(savepath) == False:	# Creates an output directory if none exists
+		savepath =  os.path.dirname(os.path.abspath(__file__)) + "/plots/"	# In the same directory as DtPlotter.py, save to a /plots/ subdir
+		if os.path.exists(savepath) == False:					# Creates an output directory if none exists
 			os.mkdir(savepath)
 			os.mkdir(savepath + "images/")
 			os.mkdir(savepath + "root_files/")
@@ -55,7 +58,7 @@ class PlotterTools:
 			if self.dir is not None:		# Directory specified
 				analysispath = self.dir
 			else:				# Nothing specified. Use default analysis path
-				analysispath = "/eos/user/m/mplesser/timing_resolution/batch_ntuples/ECAL_H4_June2018_120MHz_18deg_EScan_edges/compiled_roots/"
+				analysispath = "/eos/user/m/mplesser/timing_resolution/batch_ntuples/ECAL_H4_June2018_"+self.freq+"_"+self.temp+"_EScan_edges/compiled_roots/"
 
 			for file in os.listdir(analysispath):
 				if file.endswith('.root'):
@@ -76,9 +79,9 @@ class PlotterTools:
 		c0.SaveAs(path + "images/" + file_title + name_tag + '.png', "update")			# Save a .png of the canvas
 		root_savefile = TFile(path + "root_files/" + file_title + name_tag + ".root", "update")
 		root_savefile.cd()				
-		c0.Write()
-		print "Saved file:", path + "images/"     + file_title + name_tag + '.png'	
-		print "Saved file:", path + "root_files/" + file_title + name_tag + '.root'
+		c0.Write()										# Save a .root of the canvas
+		print '\n', "Saved file:", path + "images/"     + file_title + name_tag + '.png'	
+		print       "Saved file:", path + "root_files/" + file_title + name_tag + '.root\n'
 
 
 
@@ -99,24 +102,47 @@ class PlotterTools:
 
 	## Get the amplitude calibration coefficient
 	def amp_coeff(self, xtal):
-		if   xtal[1] == 'C4':   amp_calibration = 0.948113 # 120 MHz
-		elif xtal[1] == 'C2':	amp_calibration = 0.869192 # 120 MHz
-		#if   xtal[1] == 'C4':  amp_calibration = 0.944866 # 160 MHz
-		#elif xtal[1] == 'C2':	amp_calibration = 0.866062 # 160 MHz
+		if   self.freq == '160MHz':
+			if   xtal[1] == 'C4':   amp_calibration = 0.944866 # 160 MHz
+			elif xtal[1] == 'C2':	amp_calibration = 0.866062 # 160 MHz
+		elif self.freq == '120MHz':
+			if   xtal[1] == 'C4':   amp_calibration = 0.948113 # 120 MHz
+			elif xtal[1] == 'C2':	amp_calibration = 0.869192 # 120 MHz
+
 		return str(amp_calibration)
 
 
 
 	## Find the center of the target
-	def find_center(self, filei):
+	### NEEDS REVISION!!! ###
+	def find_center(self, filei):	
+		xtal 	     = self.get_xtals(filei)
+		ampbias      = self.amp_coeff(xtal)
+		
 		t_file  = TFile(filei)
 		t_tree  = t_file.Get("h4")
 		hx = TH1F("hx", "", 50, -20, 20)
-		hy = TH1F("hy", "", 50, -20, 20)
+		hy = TH2F("hy", "", 100, -20, 20, 100,0,10)	
+		
 		t_tree.Draw("X[0]>>hx")
-		t_tree.Draw("Y[0]>>hy")
 		x_mean = hx.GetMean()
-		y_mean = hy.GetMean()
+		t_tree.Draw("fit_ampl[{}]/({}*fit_ampl[{}]):Y[0]>>hy".format(xtal[0], ampbias, xtal[1]), "{}*fit_ampl[{}]>100".format(ampbias, xtal[1]))
+		
+		poly2 = TF1("poly2", "pol2", 2, 7)
+		poly2.SetParameter(0,5)	
+		poly2.SetParameter(1,-1)
+		poly2.SetParameter(2,0.1)
+		hy.Fit("poly2", "qR")
+		
+		p0   = float(poly2.GetParameter(0))-1.	
+		p1   = float(poly2.GetParameter(1))
+		p2   = float(poly2.GetParameter(2))
+	
+		yplus  = (-p1+pow(p1*p1-4*p0*p2, 0.5))/(2*p2) 	
+		yminus = (-p1-pow(p1*p1-4*p0*p2, 0.5))/(2*p2) 	
+		if   yplus  > 2 and yplus  < 7: y_mean = yplus	
+		elif yminus > 2 and yminus < 7: y_mean = yminus	
+		else: sys.exit("Error!!! Find mean y failed, aborting... \n")	
 		return str(x_mean), str(y_mean)
 
 
@@ -155,7 +181,7 @@ class PlotterTools:
 		poly1.SetParameter(0,0.5)	
 		poly1.SetParameter(1,0.00001)
 		hadjust_1.Fit("poly1", "qR")
-
+		
 		dt0   = str(poly1.GetParameter(0))	
 		slope = str(poly1.GetParameter(1))
 		chi2  = str(hadjust_1.Chisquare(poly1))
@@ -173,12 +199,12 @@ class PlotterTools:
 			if x[0]>0:
 				fit = pow(pow(par[0]/(x[0]),2)+2*pow(par[1],2), 0.5)								
 				return fit
-		userfit = TF1('userfit', userfit, 10, 400, 2)	
+		userfit = TF1('userfit', userfit, 50, 1000, 2)	
 		userfit.SetParameters(10, 0.1)			# Set a guess for the parameters
 		userfit.SetParNames("N", "c")			# Name the parameters
 		histo.Fit("userfit", 'qR')			# Fit the data
 		cterm = userfit.GetParameter("c")
-		print "\nConstant term from the resolution fitting: ", 1000*cterm, "ps"
+		print "Constant term from the resolution fitting: ", 1000*cterm, "ps"
 
 
 
@@ -190,25 +216,16 @@ class PlotterTools:
 
 		x_center, y_center = self.find_center(filei)
 
-		pos_val      = "2"
-		dampl_val    = "500"
-
 		fiber_cut    = "fabs(nFibresOnX[0]-2)<1 && fabs(nFibresOnY[0]-2)<1"
 		clock_cut    = "time_maximum[{}]==time_maximum[{}]".format(xtal[0],xtal[1])
-		position_cut = "(fabs(X[0]-{})<{}) && (fabs(Y[0]-{})<{})".format(x_center,pos_val,y_center,pos_val)
-		dampl_cut    = "fabs(fit_ampl[{}]-{}*fit_ampl[{}] )<{}".format(xtal[0],ampbias,xtal[1],dampl_val)
+		position_cut = "(fabs(X[0]-{})<{}) && (fabs(Y[0]-{})<{})".format(x_center, self.poscut, y_center, self.poscut)
+		amp_cut      = "amp_max[{}]>{} && {}*amp_max[{}]>{}".format(xtal[0],str(self.ampmax),ampbias,xtal[1],str(self.ampmax))
+		dampl_cut    = "fabs(fit_ampl[{}]-{}*fit_ampl[{}] )<{}".format(xtal[0], ampbias, xtal[1], self.dampcut)
 
-		chi2_bounds  = [[1, 100],[1,100]]	# chi2 bounds for [[C3],[C2/4]]
-		if self.chicuts is not None:
-			chicuts = self.chicuts.split(',')
-			chi2_bounds = [ [int(chicuts[0]), int(chicuts[1])], [int(chicuts[2]), int(chicuts[3])] ]
+		chicuts     = self.chicuts.split(',')
+		chi2_bounds = [ [int(chicuts[0]), int(chicuts[1])], [int(chicuts[2]), int(chicuts[3])] ]
 		chi2_cut  = "fit_chi2[{}]<{} && fit_chi2[{}]>{} && ".format(xtal[0],chi2_bounds[0][1],xtal[0],chi2_bounds[0][0])
-		chi2_cut += "fit_chi2[{}]<{} && fit_chi2[{}]>{}".format(xtal[1],chi2_bounds[1][1],xtal[1],chi2_bounds[1][0])
-	
-		amp_max = "0"
-		if self.ampmax is not None:
-			amp_max = str(self.ampmax) 
-		amp_cut = "amp_max[{}]>{} && {}*amp_max[{}]>{}".format(xtal[0],amp_max,ampbias,xtal[1],amp_max)
+		chi2_cut += "fit_chi2[{}]<{} && fit_chi2[{}]>{}    ".format(xtal[1],chi2_bounds[1][1],xtal[1],chi2_bounds[1][0])
 
 		if self.chi2 is not False:
 			# Chi2 cuts				
@@ -222,7 +239,6 @@ class PlotterTools:
 		if self.res is not False:	
 			# sigma cuts
 			Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut + " && " + amp_cut + " && " + dampl_cut + " && " + chi2_cut )
-
 		return Cts
 
 
@@ -242,20 +258,14 @@ class PlotterTools:
 
 		if self.aeff is not False:	
 			# Aeff bounds
-			bins  = [100, 0, 1500]		
-			if self.abins is not None:
-				abounds = self.abins.split(',')
-				bins    = [ int(abounds[0]), int(abounds[1]), int(abounds[2]) ]
-
+			abounds = self.abins.split(',')
+			bins    = [ int(abounds[0]), int(abounds[1]), int(abounds[2]) ]
 			Plts.append([Aeff, "aeff_response", bins[0], bins[1], bins[2]])
 
 		if self.res is not False:
 			# Sigma vs Aeff bounds
-			bins  = [100, 0, 1500, 100, -2, 2]
-			if self.sbins is not None:
-				sigbounds = self.sbins.split(',')
-				bins    = [ int(sigbounds[0]), int(sigbounds[1]), int(sigbounds[2]), int(sigbounds[3]), int(sigbounds[4]), int(sigbounds[5]) ]
-
+			sigbounds = self.sbins.split(',')
+			bins    = [ int(sigbounds[0]), int(sigbounds[1]), int(sigbounds[2]), int(sigbounds[3]), int(sigbounds[4]), int(sigbounds[5]) ]
 			Plts.append(["fit_time[{}]-fit_time[{}]:{}".format(xtal[0],xtal[1],Aeff), "resolution_vs_aeff", bins[0], bins[1], bins[2], bins[3], bins[4], bins[5]])
 
 		return Plts
