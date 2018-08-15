@@ -52,7 +52,6 @@ def main():
 			energy   = str(int(infotree.Energy))+'GeV'
 			print "Position:\t",position,"\tEnergy:\t",energy
 			mastertable[position][energy].append(filei)		# Add each file under the proper energy and position indices
-			shutil.copy(filei, args.directory+"/reco_roots")	# Make a copy of the reconstructed root file under /reco_roots
 	print
 	
 
@@ -73,7 +72,10 @@ def main():
 		pcompiled = subprocess.Popen(compiledcommand)		# Run the compiled hadd command
 		pcompiled.wait()					# Wait for it to finish before moving on
 		print
-				
+	
+	for filei in os.listdir(args.directory):	
+		os.rename(args.directory+filei, args.directory+"/reco_roots"+filei)	# Make a copy of the reconstructed root file under /reco_roots
+			
 if __name__=="__main__":
 	main()
 
