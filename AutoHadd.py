@@ -72,9 +72,11 @@ def main():
 		pcompiled = subprocess.Popen(compiledcommand)		# Run the compiled hadd command
 		pcompiled.wait()					# Wait for it to finish before moving on
 		print
-	
+
+	# Move the reco files to the /reco_roots directory	
 	for filei in os.listdir(args.directory):	
-		os.rename(args.directory+filei, args.directory+"/reco_roots"+filei)	# Make a copy of the reconstructed root file under /reco_roots
+		if filei.endswith(".root"):
+			os.rename(args.directory+filei, args.directory+"reco_roots/"+filei)	
 			
 if __name__=="__main__":
 	main()
