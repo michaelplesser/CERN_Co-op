@@ -53,19 +53,18 @@ class PlotterTools:
 	## Define location of files to be analyzed
 	def analysis_path(self):
 		Files = []									# Format: [ ["name", "<energy>_<position>"], ...]
-		energy_position = file.split('_')[-2]+'_'+file.split('_')[-1].split('.')[0]	# Assumes the filename of form <blablabla>_energy_position.root
-
-		if self.file is not None:							# File specified
-			file = self.file
-			Files.append( [ file, energy_position ] )			
-			print "Found file: ", file
-			return Files
 
 		if self.dir is not None: analysispath = self.dir				# Directory specified
 		else:			 analysispath = self.defaultanalysispath		# Use default directory
 
 		for file in os.listdir(analysispath):
 			if file.endswith('.root'):
+				energy_position = file.split('_')[-2]+'_'+file.split('_')[-1].split('.')[0]	# Assumes the filename of form <blablabla>_energy_position.root
+				if self.file is not None:							# File specified
+					file = self.file
+					Files.append( [ file, energy_position ] )			
+					print "Found file: ", file
+					return Files
 				if self.energy is not None:					# Energy specified, only adds files with that energy
 					if file.split('_')[-2]==self.energy:
 						Files.append( [ analysispath + file, energy_position ] )
