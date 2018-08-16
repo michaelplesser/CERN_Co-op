@@ -105,10 +105,7 @@ def main():
 					hh_2.Draw()
 
 					# Fit the plot using a user defined function
-					if args.fit == True: 
-						pt.fit_resolution(hh_2, f[0])
-						gStyle.SetOptFit(1)		# Include fit parameters in the stats box
-						gPad.Update()
+					if args.fit == True: pt.fit_resolution(hh_2, f[0])
 
 					# Save plots
 					print

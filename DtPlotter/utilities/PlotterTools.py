@@ -40,8 +40,8 @@ class PlotterTools:
 
 	## Output location for plots
 	def output_location(self):
-		savepath = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','plots'))+'/' 	# In the same directory as DtPlotter.py, save to a /plots/ subdir
-		#savepath = '/eos/user/m/mplesser/www/php-plots/tmp/'					# Save to my web eos folder
+		#savepath = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','plots'))+'/' 	# In the same directory as DtPlotter.py, save to a /plots/ subdir
+		savepath = '/eos/user/m/mplesser/www/php-plots/tmp/'					# Save to my web eos folder
 		if os.path.exists(savepath) == False:							# Creates an output directory if none exists
 			os.mkdir(savepath)
 		if os.path.exists(savepath+ "/root_files/") == False:					# Creates an output directory if none exists
@@ -52,10 +52,10 @@ class PlotterTools:
 
 	## Define location of files to be analyzed
 	def analysis_path(self):
-		Files = []									# Format: [ ["name", "<energy>_<position>"], ...]
+		Files = []											# Format: [ ["name", "<energy>_<position>"], ...]
 
-		if self.dir is not None: analysispath = self.dir				# Directory specified
-		else:			 analysispath = self.defaultanalysispath		# Use default directory
+		if self.dir is not None: analysispath = self.dir						# Directory specified
+		else:			 analysispath = self.defaultanalysispath				# Use default directory
 
 		for file in os.listdir(analysispath):
 			if file.endswith('.root'):
@@ -65,11 +65,11 @@ class PlotterTools:
 					Files.append( [ file, energy_position ] )			
 					print "Found file: ", file
 					return Files
-				if self.energy is not None:					# Energy specified, only adds files with that energy
+				if self.energy is not None:							# Energy specified, only adds files with that energy
 					if file.split('_')[-2]==self.energy:
 						Files.append( [ analysispath + file, energy_position ] )
 						print "Found file: ", analysispath + file
-				else:								# Add all root files in analysispath
+				else:										# Add all root files in analysispath
 					Files.append( [ analysispath + file, energy_position ] )
 					print "Found file: ", analysispath + file
 
@@ -137,9 +137,9 @@ class PlotterTools:
 		p2   = float(poly2.GetParameter(2))
 		yplus  = (-p1+pow(p1*p1-4*p0*p2, 0.5))/(2*p2)	# Quadratic formula gives two solutions
 		yminus = (-p1-pow(p1*p1-4*p0*p2, 0.5))/(2*p2) 	# Quadratic formula gives two solutions
+
 		ypluslogic  = yplus  > 2 and yplus  < 7		# Checks if yplus  is in the expected range
 		yminuslogic = yminus > 2 and yminus < 7		# Checks if yminus is in the expected range
-
 		if   ypluslogic and yminuslogic: sys.exit("Error!!! Y_center fitting gave two solutions in the range! Aborting... \n")
 		elif ypluslogic:  y_mean = yplus	
 		elif yminuslogic: y_mean = yminus	
@@ -214,6 +214,10 @@ class PlotterTools:
 		histo.Fit("userfit", 'qR')			# Fit the data
 		cterm = userfit.GetParameter("c")
 		print "Constant term from the resolution fitting: ", 1000*cterm, "ps"
+
+		gStyle.SetOptFit(1)				# Include fit parameters in the stats box
+		gPad.Modified()
+		gPad.Update()
 
 		# Some info for the log file
 		with open(self.output_location()+xtal[2]+'_log.txt', 'a') as f:
