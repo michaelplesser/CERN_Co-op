@@ -30,9 +30,9 @@ def input_arguments():
 	parser.add_argument('--ab',  	 	 action='store', 	default='100,0,2300',		help='Aeff plot bounds,  "nbins,Aeffmin,Aeffmax"')
 
 	parser.add_argument('--xc', '--chicuts', action='store',	default='1,100,1,100',		help='Chi squared cuts, "lb1,ub1,lb2,ub2"')
-	parser.add_argument('--am', '--ampmax' , action='store',	default=1,			help='Amp_max lower bound, used for cuts ')
-	parser.add_argument('--da', 		 action='store',	default=5000, 			help='dampl cut, max allowed difference in fit_ampl between xtals')
-	parser.add_argument('--pc', '--poscut' , action='store',	default=3, 			help='Position cut, how large an area around target center to accept')
+	parser.add_argument('--am', '--ampmax' , action='store',	default='1',			help='Amp_max lower bound, used for cuts ')
+	parser.add_argument('--da', 		 action='store',	default='5000', 			help='dampl cut, max allowed difference in fit_ampl between xtals')
+	parser.add_argument('--pc', '--poscut' , action='store',	default='3', 			help='Position cut, side-length of a square around target center to accept')
 	parser.add_argument('--lc',  		 action='store_true', 	default=False,			help='Use a linear correction to counter the "walking mean" effect')
 
 	if len(sys.argv[1:])==0: 	# Print help if no options given	
@@ -79,9 +79,14 @@ def main():
 					# Create the desired plot
 					hname = f[1] +'_'+str(fi) 
 					h     = TH1F(hname, f[1]+'_'+p[1], p[2], p[3], p[4])	
+					tree.Draw(p[0]+'>>'+hname)
+					nentries_precut  = int(h.GetEntries()) 
 					tree.Draw(p[0]+'>>'+hname, TCut(cut))
+					nentries_postcut = int(h.GetEntries()) 
+					
 					h.GetXaxis().SetTitle(p[1])
-					print "\nNumber of entries post-cuts:", int(h.GetEntries())
+					print "\nNumber of entries pre-cuts: ", nentries_precut
+					print "\nNumber of entries post-cuts:", nentries_postcut
 
 					# Save plots
 					pt.save_files(h, savepath, f[1], '_'+p[1])
@@ -90,14 +95,24 @@ def main():
 				if len(p)==8:	# -s is for a TH2F and requires 8 params
 					
 					# Use a linear adjustment to account for the "walking-mean" effect resulting from largely uneven Aeff's
-					if args.lc == True: p[0] = pt.dt_adjustment(f[0],tree,cut)
+					if args.lc == True: p[0] = pt.dt_adjustment(f[0],p,tree,cut)
 
 					# Create the color map
-					hh = pt.make_color_map(f, p, cut, tree)	
+					hh = pt.make_color_map(f,p,'',tree)
+					tree.Draw(p[0]+">>hh", "", "COLZ")
+					nentries_precut = int(hh.GetEntries()) 
+					hh = pt.make_color_map(f, p, cut, tree)
 					tree.Draw(p[0]+">>hh", TCut(cut), "COLZ")
+					nentries_postcut = int(hh.GetEntries())	
 
-					print "\nNumber of entries post-cuts:", int(hh.GetEntries())
-					
+					print "\nNumber of entries pre-cuts:", nentries_precut
+					print "Number of entries post-cuts: ", nentries_postcut
+					with open(savepath+f[1].split('_')[-1]+'_log.txt', 'a') as logfile:
+						logfile.write("\nNumber of entries ( hh.GetEntries() ):\n\tpre-cuts:\n")
+						logfile.write("\t\t" + str(nentries_precut)  + '\n')	
+						logfile.write("\t\t" + str(nentries_postcut) + '\n')
+
+
 					# Create the resolution versus Aeff plot
 					hh.FitSlicesY()
 					hh_2 = gDirectory.Get("hh_2")
