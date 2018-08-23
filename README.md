@@ -10,5 +10,11 @@ A script to automatically run hadd commands on reconstructed root files from Sim
 
 Run as: "python AutoHadd.py /path/to/files (frequency) (temperature)"
 
+# templateSubmitter.py:
+Made to make template creation more convenient. Get Simone Pigazzini's H4Analysis repo, and put this file under 'H4Analysis/scripts'.
+
+Run as: "python scripts/templateSubmitter.py (frequency) (temperature) (runs_and_positions.list) {-c (channels) <--optional}"
+See the in-code comments for more info on formatting
+
 # ViceTools:
 Tools for controlling vice boards for testing VFE and FE components and ECAL data streams.
