@@ -125,8 +125,8 @@ class PlotterTools:
 		x_mean = hx.GetMean()
 
 		# For y mean, the crystal edge is found by locating where the fit_ampl's of the two xtals are equal (ratio==1)
-		t_tree.Draw("fit_ampl[{}]/({}*fit_ampl[{}]):Y[0]>>hy".format(xtal[0], ampbias, xtal[1]), "{}*fit_ampl[{}]>100".format(ampbias, xtal[1]))
-		poly2 = TF1("poly2", "pol2", 2, 7) # Fit the plot, pol2 works well enough in general, but is not physically justified
+		t_tree.Draw("fit_ampl[{}]/({}*fit_ampl[{}]):Y[0]>>hy".format(xtal[0], ampbias, xtal[1]), "{}*fit_ampl[{}]>1000".format(ampbias, xtal[1]))
+		poly2 = TF1("poly2", "pol2", 3, 6) # Fit the plot, pol2 works well enough in general, but is not physically justified
 		poly2.SetParameter(0,5)	
 		poly2.SetParameter(1,-1)
 		poly2.SetParameter(2,0.1)
@@ -134,6 +134,7 @@ class PlotterTools:
 		p0   = float(poly2.GetParameter(0))-1.		# Subtract one because we want to solve p2*x^2 + p1*x + p0 = 1
 		p1   = float(poly2.GetParameter(1))
 		p2   = float(poly2.GetParameter(2))
+		
 		yplus  = (-p1+pow(p1*p1-4*p0*p2, 0.5))/(2*p2)	# Quadratic formula gives two solutions
 		yminus = (-p1-pow(p1*p1-4*p0*p2, 0.5))/(2*p2) 	# Quadratic formula gives two solutions
 
@@ -149,7 +150,6 @@ class PlotterTools:
 			f.write("Target center position:\n")
 			f.write("\tX_center:\n\t\t" + str(x_mean) + ' \n')
 			f.write("\tY_center:\n\t\t" + str(y_mean) + ' \n\n')
-		
 		return str(x_mean), str(y_mean)
 
 

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import sys
 import argparse
@@ -12,11 +14,9 @@ import subprocess
 			IE: 11307,C3
 			    11308,C4
 			    etc...
-	Run as, for example: 'python templateSubmitter.py 160 18 /path/to/file_of_160MHz_18deg.list -c <channels>'
+	Run as, for example: 'python scripts/templateSubmitter.py 160 18 /path/to/file_of_160MHz_18deg.list -c <channels>'
 		(-c is optional, the default is use all channels listed in xtals_positions)
 '''
-
-
 
 
 def input_arguments():
@@ -53,9 +53,7 @@ def main():
 	if   (args.temp == '18' ) or (args.temp == '18deg' ): temp = '18deg'		# Resolve it either way
 	elif (args.temp == '9'  ) or (args.temp == '9deg'  ): temp = '9deg'		# blahblah licht mehr licht
 	
-	if args.c is None: args.c = [ch for ch in xtal_positions]			# If no channels specified, use all of them
-	else: 		   args.c = args.c.split(',')					# Otherwise use the input ones
-	runs_and_channels = {ch:[] for ch in args.c}					# Initialize an empty dictionary with channel names as indices
+	runs_and_channels = {ch:[] for ch in xtal_positions}				# Initialize an empty dictionary with channel names as indices
 	runs_and_channels = get_runs_and_channels(args.f, runs_and_channels)
 
 	cmd 	= ['python', 	'scripts/templateMaker.py'			]	# Start with the "base", cmd, add options one by one using 'extend'	
@@ -66,11 +64,14 @@ def main():
 	cmd.extend(bins)
 	
 	f = open('log_{}_{}_templateSubmitter.txt'.format(freq,temp), 'w')		# Keep a log file in case any template creations fail
-	f.write(freq+" "+temp+" template log: \n\n")
-	
-	for ch in runs_and_channels:
-		
-		if len(runs_and_channels[ch][0]) == 0: continue				# If there are no runs, skip that crystal
+	f.write("{} {} template log: \n\n".format(freq,temp))
+
+	if args.c is not None: 	 args.c = args.c.split(',')				# Use provided channels if provided
+	else:		 	 args.c = [ch for ch in xtal_positions]			# Otherwise use all channels, taken from the positions dict.
+
+	for ch in args.c:
+
+		if len(runs_and_channels[ch]) == 0: continue				# If there are no runs, skip that crystal
 		
 		cutstring = 'amp_max[{}]>3000 && nFibresOnX[0]==2 && nFibresOnY[0]==2 && fabs(X[0]-{})<2 && fabs(Y[0]-{})<2'.format(ch, str(xtal_positions[ch][0]), str(xtal_positions[ch][1]))
 		cut 	  = ['--cut' 	, cutstring						] 
@@ -79,23 +80,24 @@ def main():
 		output    = ['-o'	, 'tmp/'+ch+'_template_file_'+freq+'_'+temp+'.root'	]
 		if not os.path.exists('tmp/'): mkdir ('tmp/')				# Make a tmp/ directory to hold the templates if none exists
 	
-		runcmd = []								# runcmd is the cmd command with channel-specific flags added
-		runcmd.extend(cmd)
-		runcmd.extend(output)
-		runcmd.extend(channels)
-		runcmd.extend(runs)
-		runcmd.extend(cut)	
+		runcmd  = cmd								# runcmd is the cmd command with channel-specific flags added
+		runcmd += output
+		runcmd += channels
+		runcmd += runs
+		runcmd += cut	
 		
-		print "\nRunning: ",' '.join(runcmd),'\n'
-		subprocess.Popen(runcmd)						# Actually run the command
-		
+		print("\nRunning: ",' '.join(runcmd),'\n')
+		p = subprocess.Popen(runcmd)						# Actually run the command
+		p.communicate()								# Wait for the command to finish before moving on
+	
 		if os.path.exists(output[1]): f.write("File {} creation successful!\n".format(output[1]))
 		else: f.write("File {} creation FAILED!\n".format(output[1]))
 	f.close()
 
 	## Compile each individual template into one master .root file
-	compilecmd = ['hadd', 'tmp/ECAL_H4_June2018_template_file_'+freq+'_'+temp+'.root', 'tmp/*'+freq+'_'+temp+'.root']	
-	subprocess.Popen(compilecmd)
+	#compilecmd = ['hadd', 'tmp/ECAL_H4_June2018_template_file_'+freq+'_'+temp+'.root', 'tmp/*'+freq+'_'+temp+'.root']	
+	#p = subprocess.Popen(compilecmd)
+	#p.communicate()
 
 if __name__=="__main__":
 	main()

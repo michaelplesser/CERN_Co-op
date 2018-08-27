@@ -47,8 +47,13 @@ def main():
 			infotree.GetEntry(0)
 			if   infotree.Positions == 2.5: position = 'C3down'
 			elif infotree.Positions == 3.5: position = 'C3up'
-			else: sys.exit("Unrecognized position, aborting...")
-			energy   = str(int(infotree.Energy))+'GeV'
+			else: sys.exit("Unrecognized position, {} aborting...".format(infotree.Positions))
+			
+			pre = [25, 50, 100, 150, 200, 250]
+			post = [abs(x-int(infotree.Energy)) for x in pre]
+			energy  = str(pre[ post.index(min(post))  ])+"GeV"
+			
+			#energy   = str(int(infotree.Energy))+'GeV'
 			print "Position:\t",position,"\tEnergy:\t",energy
 			mastertable[position][energy].append(filei)		# Add each file under the proper energy and position indices
 	print
