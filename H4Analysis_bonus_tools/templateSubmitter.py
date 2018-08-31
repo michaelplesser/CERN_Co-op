@@ -33,11 +33,22 @@ def get_runs_and_channels(f, r_a_cs):
 	if not os.path.exists(f): sys.exit("Error!!! Input file not found!")
 	with open(f, 'r') as fi:
 		for line in fi:	
-			if line == '\n': continue				# If the line is just '\n', skip it. "last line bug"
-			position  = str(line.split(',')[1].split('\n')[0])	# line = '<pos>,<run#>\n'
-			runnumber = str(line.split(',')[0])			# line = '<pos>,<run#>\n'
-			r_a_cs[position].extend([runnumber])			# Add each run number under the right dictionary index	
+			if line == '\n': continue					# If the line is just '\n', skip it. "last line bug"
+			position  = str(line.split(',')[1].split('\n')[0])		# line = '<pos>,<run#>\n'
+			runnumber = str(line.split(',')[0])				# line = '<pos>,<run#>\n'
+			r_a_cs[position].extend([runnumber])				# Add each run number under the right dictionary index	
 	return r_a_cs
+
+## Checks H4Analysis/ntuples/ to see if the reconstruction has been done already
+def check_for_ntuple(runs):
+	ntuples = ['-f', '']
+	for runnumber in runs:
+		if os.path.exists( 'ntuples/ECAL_H4_June2018_'+runnumber+'.root'):	# If the ntuple already exists
+			ntuples[1] += 'ntuples/ECAL_H4_June2018_'+runnumber+'.root,'	# Add ntuple to list
+	ntuples[1] = ntuples[1][:-1] 							# Remove trailing comma
+	if ntuples[1] == '': ntuples = []						# If ntuples don't already exist, return empty list
+	
+	return ntuples	
 
 def main():
 	## Crystal center positions in hodoscope coordinates
@@ -73,20 +84,28 @@ def main():
 
 		if len(runs_and_channels[ch]) == 0: continue				# If there are no runs, skip that crystal
 		
-		cutstring = 'amp_max[{}]>3000 && nFibresOnX[0]==2 && nFibresOnY[0]==2 && fabs(X[0]-{})<2 && fabs(Y[0]-{})<2'.format(ch, str(xtal_positions[ch][0]), str(xtal_positions[ch][1]))
-		cut 	  = ['--cut' 	, cutstring						] 
-		channels  = ['-c'	, ch							]
-		runs      = ['-r'	, runs_and_channels[ch][0]				]
-		output    = ['-o'	, 'tmp/'+ch+'_template_file_'+freq+'_'+temp+'.root'	]
-		if not os.path.exists('tmp/'): mkdir ('tmp/')				# Make a tmp/ directory to hold the templates if none exists
+		cutstring  = 'amp_max[{}]>100 && '.format(ch)
+		cutstring += 'nFibresOnX[0]==2 && nFibresOnY[0]==2 && '
+		cutstring += 'fabs(X[0]-{})<2 && fabs(Y[0]-{})<2'.format(str(xtal_positions[ch][0]), str(xtal_positions[ch][1]))
+		
+		cut 	   = ['--cut' 	, cutstring						] 
+		channels   = ['-c'	, ch							]
+		runs       = ['-r'	, runs_and_channels[ch][0]				]
+		output     = ['-o'	, 'tmp/'+ch+'_template_file_'+freq+'_'+temp+'.root'	]
+		maxevents  = ['-m'	, '-1'							]
+		ntuples    = check_for_ntuple(runs_and_channels[ch])
 	
 		runcmd  = cmd								# runcmd is the cmd command with channel-specific flags added
 		runcmd += output
 		runcmd += channels
 		runcmd += runs
 		runcmd += cut	
-		
-		print("\nRunning: ",' '.join(runcmd),'\n')
+		runcmd += maxevents
+		runcmd += ntuples	
+
+	
+		print('\nRunning: '+' '.join(runcmd)+'\n')
+		if not os.path.exists('tmp/'): mkdir ('tmp/')				# Make a tmp/ directory to hold the templates if none exists
 		p = subprocess.Popen(runcmd)						# Actually run the command
 		p.communicate()								# Wait for the command to finish before moving on
 	

@@ -26,8 +26,8 @@ def input_arguments():
 	parser.add_argument('--fit', 	 	 action='store_true', 					help='Fit using a user function the resolution versus Aeff plot')
 
 	parser.add_argument('--xb',  	 	 action='store', 	default='100,-5,1000',		help='Chi2 plot bounds,  "nbins,chi2min,chi2max"')
-	parser.add_argument('--sb', 	 	 action='store',	default='100,0,2300,100,-2,2',	help='Sigma plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
-	parser.add_argument('--ab',  	 	 action='store', 	default='100,0,2300',		help='Aeff plot bounds,  "nbins,Aeffmin,Aeffmax"')
+	parser.add_argument('--sb', 	 	 action='store',	default='20,0,1000,100,-2,2',	help='Sigma plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
+	parser.add_argument('--ab',  	 	 action='store', 	default='100,0,1000',		help='Aeff plot bounds,  "nbins,Aeffmin,Aeffmax"')
 
 	parser.add_argument('--xc', '--chicuts', action='store',	default='1,100,1,100',		help='Chi squared cuts, "lb1,ub1,lb2,ub2"')
 	parser.add_argument('--am', '--ampmax' , action='store',	default='1',			help='Amp_max lower bound, used for cuts ')

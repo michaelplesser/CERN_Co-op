@@ -4,6 +4,7 @@
 
 import os	
 import sys
+from math import floor, ceil
 import numpy as np
 from ROOT import *
 from array import array
@@ -45,8 +46,6 @@ class PlotterTools:
 		savepath = '/eos/user/m/mplesser/www/php-plots/tmp/'					# Save to my web eos folder
 		if os.path.exists(savepath) == False:							# Creates an output directory if none exists
 			os.mkdir(savepath)
-		if os.path.exists(savepath+ "root_files/") == False:					# Creates an output directory if none exists
-			os.mkdir(savepath + "root_files/")
 		return savepath
 
 
@@ -78,10 +77,10 @@ class PlotterTools:
 
 	## Save a .root of the given TObject
 	def save_files(self, h, path, file_title, name_tag):
-		root_savefile = TFile(path + "root_files/" + file_title + name_tag + ".root", "recreate")
+		root_savefile = TFile(path + file_title + name_tag + ".root", "recreate")
 		root_savefile.cd()				
 		h.Write()
-		print  "Saved file:", path + "root_files/" + file_title + name_tag + '.root'
+		print  "Saved file:", path + file_title + name_tag + '.root'
 
 
 
@@ -157,14 +156,34 @@ class PlotterTools:
 	## Make the dt vs aeff color map, and use quantiles if so directed
 	def make_color_map(self, f, p, cut, tree):
 		if self.quant == True:	 								# Use quantiles
+			
+			## Pure quantile method
+			#Aeff = p[0].split(':')[-1]
+			#aeff_tmp = TH1F('aeff',"", 100, p[3], p[4])					# Creates a temporary histogram to find the quantiles
+			#tree.Draw(Aeff+'>>aeff', TCut(cut))
+			#nquants = p[2]+1								# n_quantiles = nbins + 1
+			#probs = array('d', [x/(nquants-1.) for x in range(0, nquants)])			# Quantile proportions array
+			#quantiles = array('d', [0 for x in range(0, nquants)])				# Bin edges, initialized as all 0's
+			#aeff_tmp.GetQuantiles(nquants, quantiles, probs)				# Overwrites 'quantiles' with bin edges positions
+			#hh = TH2F('hh', f[1]+'_dt_vs_aeff_heatmap', p[2], quantiles , p[5], p[6], p[7])	# Return a TH2F with quantile binning
+			
+
+			## Hybrid quantile method. Uses fixed width bins up to aeff_min_quant, then quantiles above that
 			Aeff = p[0].split(':')[-1]
-			aeff_tmp = TH1F('aeff',"", 100, p[3], p[4])					# Creates a temporary histogram to find the quantiles
+			aeff_min_quant = 400								# The Aeff value above which quantiles are used
+			aeff_tmp = TH1F('aeff',"", 100, aeff_min_quant, p[4])				# Creates a temporary histogram to find the quantiles
 			tree.Draw(Aeff+'>>aeff', TCut(cut))
-			nquants = p[2]+1								# n_quantiles = nbins + 1
+			nquants = int(ceil(p[2]/2)+1)							# n_quantiles = nbins/2 + 1 (round up if odd)
 			probs = array('d', [x/(nquants-1.) for x in range(0, nquants)])			# Quantile proportions array
 			quantiles = array('d', [0 for x in range(0, nquants)])				# Bin edges, initialized as all 0's
 			aeff_tmp.GetQuantiles(nquants, quantiles, probs)				# Overwrites 'quantiles' with bin edges positions
-			hh = TH2F('hh', f[1]+'_dt_vs_aeff_heatmap', p[2], quantiles , p[5], p[6], p[7])	# Return a TH2F with quantile binning
+			nfixed_bins    = int(floor(p[2]/2))						# n_fixed_bins = nbins/2 + 1 (round down if odd)
+			fixed_bin_size = aeff_min_quant/nfixed_bins			
+			bins = array('d', [fixed_bin_size*n for n in range(nfixed_bins)]) + quantiles	# Fixed width bins up to aeff_min_quant, then uses quantiles
+			hh = TH2F('hh', f[1]+'_dt_vs_aeff_heatmap', p[2], bins, p[5], p[6], p[7])	# Return a TH2F with quantile binning
+		
+
+
 		else:											# Use fixed width bins
 			hh = TH2F('hh', f[1]+'_dt_vs_aeff_heatmap', p[2], p[3], p[4], p[5], p[6], p[7])	# Return a TH2F with fixed-width binning	
 

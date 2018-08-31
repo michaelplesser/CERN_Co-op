@@ -15,19 +15,16 @@ def input_arguments():
 
 	return parser.parse_args()
 
-## Makes sure that input args are given as integers (frequency and temperature)
-def check_int_args(var):
-	try: int(var)
-	except ValueError: sys.exit( "\nFrequency and temperature should be input as integers!!! IE 120 9\nAborting...\n" )
-
 def main():
 	args = input_arguments()
-	check_int_args(args.freq)
-	check_int_args(args.temp)
-
+	if   (args.freq == '160') or (args.freq == '160MHz'): freq = '160MHz'           # Ensures consistent formatting
+        elif (args.freq == '120') or (args.freq == '120MHz'): freq = '120MHz'           # IE does the user enter '120', or '120MHz'?
+        if   (args.temp == '18' ) or (args.temp == '18deg' ): temp = '18deg'            # Resolve it either way
+        elif (args.temp == '9'  ) or (args.temp == '9deg'  ): temp = '9deg'             # blahblah licht mehr licht
+	
 	if not args.directory.endswith('/'): args.directory+='/' # For consistency, makes sure '/directory/path/ends/with/' <-- a '/'
 
-	name_base      = "ECAL_H4_June2018_" + args.freq + "MHz_" + args.temp + "deg_"
+	name_base      = "ECAL_H4_June2018_" + freq + "_" + temp + "_"
 	C3upenergies   = { '25GeV' : [], '50GeV' : [], '100GeV' : [], '150GeV' : [], '200GeV' : [], '250GeV' : [] }
 	C3downenergies = { '25GeV' : [], '50GeV' : [], '100GeV' : [], '150GeV' : [], '200GeV' : [], '250GeV' : [] }
 	mastertable    = { 'C3up'  : C3upenergies, 'C3down' : C3downenergies}
@@ -44,16 +41,21 @@ def main():
 			print "Found file:", filei,"\t", 
 			tfile = TFile(args.directory+filei)
 			infotree  = tfile.Get("info")
-			infotree.GetEntry(0)
+			infotree.GetEntry(1)
 			if   infotree.Positions == 2.5: position = 'C3down'
 			elif infotree.Positions == 3.5: position = 'C3up'
 			else: sys.exit("Unrecognized position, {} aborting...".format(infotree.Positions))
+
 			
-			pre = [25, 50, 100, 150, 200, 250]
-			post = [abs(x-int(infotree.Energy)) for x in pre]
-			energy  = str(pre[ post.index(min(post))  ])+"GeV"
+			## In case the energies were put in ~exactly~ (IE 49.99 instead of 50), find the closest value from the 'int_e_list' of expected integer energies
+			int_e_list = [25, 50, 100, 150, 200, 250]						# List of expected integer energies
+			int_float_e_diff = [abs( e-int(infotree.Energy) ) for e in int_e_list]			# List of expected energies - found energies (abs_val)
+			energy  = str( int_e_list[ int_float_e_diff.index( min(int_float_e_diff) ) ] )+"GeV"	# Take the expected energy which is closest to the found energy
 			
-			#energy   = str(int(infotree.Energy))+'GeV'
+			if filei.endswith("11467.root"): # Temporary fix to 11467 info missing
+				position = 'C3up'
+				energy   = "50GeV"	
+		
 			print "Position:\t",position,"\tEnergy:\t",energy
 			mastertable[position][energy].append(filei)		# Add each file under the proper energy and position indices
 	print
