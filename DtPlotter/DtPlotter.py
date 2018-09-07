@@ -13,37 +13,37 @@ from utilities import FilesTools
 def input_arguments():
 	parser = argparse.ArgumentParser(description='Control plotting and cuts for inter-crystal time resolution studies')
 	
-	parser.add_argument('-d'  ,    type=str,            						help='Use all the files in the given directory for analysis ')
-	parser.add_argument('-f'  ,    type=str,            						help='Use the given file for analysis(use the absolute path)')
-	parser.add_argument('-e'  ,    type=str,            						help='Energy to use for analysis (IE "250GeV" or "compiled")')
-	parser.add_argument('--freq',  type=str, 		 	default='160MHz',		help='Sampling frequency,   IE "160MHz" or "120 MHz"')
-	parser.add_argument('--temp',  type=str, 		 	default='18deg' ,		help='Sampling temperature, IE "18deg"  or "9deg"')
-	
-	parser.add_argument('-x'  , 	 	 action='store_true', 					help='Create plots for fit_chi2[C3] and fit_chi2[<2nd xtal>]')
-	parser.add_argument('-a'  , 	 	 action='store_true', 					help='Create effective voltage (Aeff) plot')
-	parser.add_argument('-s'  , 	 	 action='store_true', 					help='Create resolution versus  Aeff  plot')
-	
-	parser.add_argument('-q'   ,     	 action='store_true', 					help='Use a quantile method for the resolution versus Aeff plot')
-	parser.add_argument('--fit', 	 	 action='store_true', 					help='Fit using a user function the resolution versus Aeff plot')
+	parser.add_argument('-d'  ,    type=str,            			    			             help='Use all the files in the given directory for analysis ')
+	parser.add_argument('-f'  ,    type=str,            				    		             help='Use the given file for analysis(use the absolute path)')
+	parser.add_argument('-e'  ,    type=str,            					        	         help='Energy to use for analysis (IE "250GeV" or "compiled")')
+	parser.add_argument('--freq',  type=str,    		         	default='160MHz',		     help='Sampling frequency,   IE "160MHz" or "120 MHz"')
+	parser.add_argument('--temp',  type=str, 	        	    	default='18deg' ,		     help='Sampling temperature, IE "18deg"  or "9deg"')
 
-	parser.add_argument('--xb',  	 	 action='store', 	default='100,-5,1000',		help='Chi2 plot bounds,  "nbins,chi2min,chi2max"')
-	parser.add_argument('--sb', 	 	 action='store',	default='20,0,1500,100,-2,2',	help='Sigma plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
-	parser.add_argument('--ab',  	 	 action='store', 	default='100,0,1500',		help='Aeff plot bounds,  "nbins,Aeffmin,Aeffmax"')
+	parser.add_argument('-x'  , 	     	action='store_true', 					             help='Create plots for fit_chi2[C3] and fit_chi2[<2nd xtal>]')
+	parser.add_argument('-a'  , 	 	    action='store_true', 					             help='Create effective voltage (Aeff) plot')
+	parser.add_argument('-r'  , 	 	    action='store_true', 					             help='Create resolution versus  Aeff  plot')
+	
+	parser.add_argument('-q'   ,        	action='store_true', 					             help='Use a quantile method for the resolution versus Aeff plot')
+	parser.add_argument('--fit', 	     	action='store_true', 					             help='Fit using a user function the resolution versus Aeff plot')
 
-	parser.add_argument('--xc', '--chicuts', action='store',	default='1,10,1,10',		help='Chi squared cuts, "lb1,ub1,lb2,ub2"')
-	parser.add_argument('--am', '--ampmax' , action='store',	default='100',			help='Amp_max lower bound, used for cuts ')
-	parser.add_argument('--da', 		 action='store',	default='5000', 		help='dampl cut, max allowed difference in fit_ampl between xtals')
-	parser.add_argument('--pc', '--poscut' , action='store',	default='3', 			help='Position cut, side-length of a square around target center to accept')
-	parser.add_argument('--lc',  		 action='store_true', 	default=False,			help='Use a linear correction to counter the "walking mean" effect')
+	parser.add_argument('--xb',  	 	    action='store', 	    default='100,-5,1000',		 help='Chi2 plot bounds,  "nbins,chi2min,chi2max"')
+	parser.add_argument('--sb', 	 	    action='store',	        default='20,0,1500,100,-2,2',help='Sigma plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
+	parser.add_argument('--ab',  	 	    action='store', 	    default='100,0,1500',		 help='Aeff plot bounds,  "nbins,Aeffmin,Aeffmax"')
+
+	parser.add_argument('--xc', '--chicuts',action='store',	        default='1,10,1,10',		 help='Chi squared cuts, "lb1,ub1,lb2,ub2"')
+	parser.add_argument('--am', '--ampmax' ,action='store',	        default='100',			     help='Amp_max lower bound, used for cuts ')
+	parser.add_argument('--da', '--dampl'  ,action='store',	        default='5000', 		     help='dampl cut, max allowed difference in fit_ampl between xtals')
+	parser.add_argument('--pc', '--poscut' ,action='store',	        default='3', 			     help='Position cut, side-length of a square around target center to accept')
+	parser.add_argument('--lc', '--lincorr',action='store_true',    default=False,			     help='Use a linear correction to counter the "walking mean" effect')
 
 	args = parser.parse_args()
 
-	if   (args.freq == '160') or (args.freq == '160MHz'): args.freq = '160MHz'	# Ensures consistent formatting 
+	if   (args.freq == '160') or (args.freq == '160MHz'): args.freq = '160MHz'	    # Ensures consistent formatting 
         elif (args.freq == '120') or (args.freq == '120MHz'): args.freq = '120MHz'	# IE does the user enter '120', or '120MHz'? 
         if   (args.temp == '18' ) or (args.temp == '18deg' ): args.temp = '18deg'	# Resolve it either way 
         elif (args.temp == '9'  ) or (args.temp == '9deg'  ): args.temp = '9deg'	# blahblah licht mehr licht
 
-	if len(sys.argv[1:])==0: 	# Print help if no options given	
+	if len(sys.argv[1:])==0: 	                                                    # Print help if no options given	
 		parser.print_help()
 		sys.exit("\n")
 
@@ -51,33 +51,33 @@ def input_arguments():
 
 def main():
 	## Stats box parameters
-	#gStyle.SetOptStat(0)					# No stat box 
-	gStyle.SetStatY(0.9)					# Y-position (fraction of pad size)                
-	gStyle.SetStatX(0.9)					# X-position         
-	gStyle.SetStatW(0.2)					# Width           
-	gStyle.SetStatH(0.1)					# Height
-	gROOT.SetBatch(kTRUE)					# Don't show graphics 
+	#gStyle.SetOptStat(0)					            # No stat box 
+	gStyle.SetStatY(0.9)					            # Y-position (fraction of pad size)                
+	gStyle.SetStatX(0.9)					            # X-position         
+	gStyle.SetStatW(0.2)					            # Width           
+	gStyle.SetStatH(0.1)					            # Height
+	gROOT.SetBatch(kTRUE)					            # Don't show graphics 
 	gROOT.ProcessLine("gErrorIgnoreLevel = kError;")	# Surpress info messages below Error or Fatal levels (IE info or warning)
 
 	args = input_arguments()
 
-	ft	  = FilesTools(args)				# Class for defining save path and finding analysis files	
+	ft	  = FilesTools(args)                            # Class for defining save path and finding analysis files	
 	savepath  = ft.output_location()
 	Files     = ft.analysis_path()
 
 	for f in Files:
 		
-		pt    = PlotterTools(args, savepath, f)		# Class with tools for plotting, duh
-		Cuts  = pt.define_cuts() 			# Get the cuts for the relevant plots, flagged in args
-		Plots = pt.define_plots() 			# Get what plots are desired, flagged in args
+		pt    = PlotterTools(args, savepath, f)	    	# Class with tools for plotting, duh
+		Cuts  = pt.define_cuts() 			            # Get the cuts for the relevant plots, flagged in args
+		Plots = pt.define_plots() 			            # Get what plots are desired, flagged in args
 	
-		for i in xrange(len(Plots)):			# For each plot of interest
+		for i in xrange(len(Plots)):	    		    # For each plot of interest
 				
 				print "\n","#"*int(os.popen('stty size', 'r').read().split()[1]) # print a line of ###'s, aesethetic
 				print "File:", f[0]
 
-				cut = Cuts[i]	 	# Cuts for the current plot of interest
-				p   = Plots[i]	 	# Plotting info, what to plot, what bounds, etcetc
+				cut = Cuts[i]	                    	# Cuts for the current plot of interest
+				p   = Plots[i]	 	                    # Plotting info, what to plot, what bounds, etcetc
 
 				tfile = TFile(f[0])
 				tree  = tfile.Get("h4")
