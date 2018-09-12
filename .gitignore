@@ -1,2 +1,5 @@
 # Ignore all .pyc files
 *.pyc
+
+# Ignore plots/ created under DtPlotter
+plots/

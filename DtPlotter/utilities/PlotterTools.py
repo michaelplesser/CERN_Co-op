@@ -37,7 +37,6 @@ class PlotterTools:
         self.sbins   = self.args.sb
         self.abins   = self.args.ab
 
-        self.chicuts = self.args.xc
         self.ampmax  = self.args.am
         self.dampcut = self.args.da
         self.poscut  = self.args.pc
@@ -84,12 +83,15 @@ class PlotterTools:
         t_file  = TFile(self.file)
         t_tree  = t_file.Get("h4")
         fit_range = 2,7
-        hx = TH1F("hx", "", 50, -20, 20)
+        hx = TH1F("hx", "", 100, -20, 20)
         hy = TH2F("hy", "", 100, fit_range[0], fit_range[1], 100,0,10)      # Some what manually tuned... If it fails:
                                                                             # Check "dampl:Y[0]", and make sure that y=1 in fit_range
         # x mean found by averaging the Hodo.X[0] plot. Valid since amplitudes are basically independent of X
         t_tree.Draw("X[0]>>hx")
-        x_mean = hx.GetMean()
+        threshold = hx.GetMaximum()/100
+        lower_bin = hx.FindFirstBinAbove(threshold)
+        upper_bin = hx.FindLastBinAbove(threshold)
+        x_mean = hx.GetBinCenter((upper_bin+lower_bin)/2)
 
         # For y mean, the crystal edge is found by locating where the fit_ampl's of the two xtals are equal (ratio==1)
         y_var = "fit_ampl[{}]/({}*fit_ampl[{}]):Y[0]>>hy".format(self.xtal[0], self.ampbias, self.xtal[1])
@@ -125,33 +127,119 @@ class PlotterTools:
         
         return str(x_mean), str(y_mean)
 
+    ## Aligns the two X and Y hodoscope planes, such that X[0] = X[1]-dx_hodo_align
+    def hodoscope_alignment(self):
+
+        tfile  = TFile(self.file)
+        tree   = tfile.Get("h4")
+
+        hox   = TH1F("hox", '', 100,-20,20)      
+        hoy   = TH1F("hoy", '', 100,-20,20)
+        cutx = "nFibresOnX[0]==2 && nFibresOnX[1]==2"
+        cuty = "nFibresOnY[0]==2 && nFibresOnY[1]==2"
+
+        tree.Draw("X[0]-X[1]>>hox", TCut(cutx))
+        dx_hodo_align = hox.GetMean()
+
+        tree.Draw("Y[0]-Y[1]>>hoy", TCut(cuty))
+        dy_hodo_align = hoy.GetMean()
+        
+        if (dx_hodo_align==0.0) or (dy_hodo_align==0.0): sys.exit("Error! Hodoscope alignment failed!")
+        return dx_hodo_align, dy_hodo_align
+
+    ## Sweep to find the chi2 range [1/val,val] that gives 95% acceptance when used as a cut
+    def chi2_range_sweep(self):
+
+        ## Checks if the chi2 sweep is complete, and if it needs to change directions because it overshot
+        def check_range(window, percentage):
+            completed = False   # Flag that is only set to True once the percent_acceptance is in the desired range
+            if (percentage <= 0.95+window) and (percentage >= 0.95-window):
+                completed = True
+                direction = 0
+            elif percentage>0.95+window:
+                direction = -1
+            elif percentage<0.95+window:
+                direction = 1
+            return completed, direction
+
+
+        tfile  = TFile(self.file)
+        tree = tfile.Get("h4")
+        h_chi = TH2F("h_chi","",100,-20,20,100,-20,20)
+        tree.Draw("Y[0]:X[0]>>h_chi")
+        tot_events = h_chi.GetEntries()
+        
+        print
+        chi_vals = [0,0]    # One for xtal[0], one for xtal[1]
+        for i in range(len(self.xtal)-1):
+            print "Beginning chi2 sweep for {}".format(self.xtal[i])
+
+            chi_val = 20    # A guess to start
+            chi_cut = "fit_chi2[{0}]>1./{1} && fit_chi2[{0}]<{1}".format(self.xtal[i],chi_val)
+            tree.Draw("Y[0]:X[0]>>h_chi", TCut(chi_cut))
+
+            percent_plus_minus = 0.005                                                      # What is the acceptable range of percent's around 0.95, IE 0.01->0.94-0.96
+            percent_accept     = 1.*h_chi.GetEntries()/tot_events
+            direction          = check_range(percent_plus_minus, percent_accept)[1]         # +1 or -1, does the chi_val get increased or decreased?
+            lastdirection      = direction                                                  # Memory for checking if the direction changed
+            stepsize           = 8                                                          # By how much chi_val is changed each time
+
+            while check_range(percent_plus_minus, percent_accept)[0] == False:
+                direction     = check_range(percent_plus_minus, percent_accept)[1]          # +1 or -1, does the chi_val get increased or decreased?
+                if direction != lastdirection: 
+                    stepsize /= 2.                                                          # Reduce step size if we overshoot it
+
+                chi_val = chi_val + (direction * stepsize)                                  # Adjust the chi_val in the right direction, by the current stepsize
+                chi_cut = "fit_chi2[{0}]>1./{1} && fit_chi2[{0}]<{1}".format(self.xtal[i],chi_val)
+                tree.Draw("Y[0]:X[0]>>h_chi", TCut(chi_cut))
+
+                percent_accept = 1.*h_chi.GetEntries()/tot_events
+                lastdirection   = direction
+            print "Range found for {}:\n\t{:.4f} - {} with {:.2f}% acceptance".format(self.xtal[i], 1./chi_val, chi_val, percent_accept*100.)
+            chi_vals[i] = chi_val
+
+        return [ [1./chi_vals[0], chi_vals[0]], [1./chi_vals[1], chi_vals[1]] ]
+
+
     ## Cuts to selection
     def define_cuts(self):
 
         ## Misc cuts that may be applied
-        fiber_cut    = "fabs(nFibresOnX[0]-2)<1 && fabs(nFibresOnY[0]-2)<1"
+
+        # We have 2 hodo planes we can use for X and Y. This cut picks the best one for position and nFibresOn
+        x_align, y_align = self.hodoscope_alignment()
+        fiber_cut    = "fabs(nFibresOnX[{0}]-2)<2 && fabs(nFibresOnY[{0}]-2)<2"                 # 2 hodoscope planes we can use, [0]. [1]
+        position_cut = "(fabs( (X[{0}]-{1}) - {2})<4) && (fabs( (Y[{0}]-{3}) -{4})<{5})"        # {0}=which plane
+                                                                                                # {1}=x_hodo_alignment
+                                                                                                # {2}=x_center
+                                                                                                # {3}=y_hodo_alignment
+                                                                                                # {4}=y_center
+                                                                                                # {5}=poscut
+
+        fiber_and_position  = '('+fiber_cut.format(0)+" && "+position_cut.format(0,0      ,self.x_center,0      ,self.y_center,self.poscut)+') || '
+        fiber_and_position += '('+fiber_cut.format(1)+" && "+position_cut.format(1,x_align,self.x_center,y_align,self.y_center,self.poscut)+')'
+
         clock_cut    = "time_maximum[{}]==time_maximum[{}]".format(self.xtal[0],self.xtal[1])
-        position_cut = "(fabs(X[0]-{})<4) && (fabs(Y[0]-{})<{})".format(self.x_center, self.y_center, self.poscut)
         amp_cut      = "amp_max[{}]>{} && {}*amp_max[{}]>{}".format(self.xtal[0],str(self.ampmax),self.ampbias,self.xtal[1],str(self.ampmax))
         dampl_cut    = "fabs(fit_ampl[{}]-{}*fit_ampl[{}] )<{}".format(self.xtal[0], self.ampbias, self.xtal[1], self.dampcut)
 
-        chicuts      = self.chicuts.split(',')
-        chi2_bounds  = [ [int(chicuts[0]), int(chicuts[1])], [int(chicuts[2]), int(chicuts[3])] ]
+        chi2_bounds  = self.chi2_range_sweep()
         chi2_cut     = "fit_chi2[{}]<{} && fit_chi2[{}]>{} && ".format(self.xtal[0],chi2_bounds[0][1],self.xtal[0],chi2_bounds[0][0])
         chi2_cut    += "fit_chi2[{}]<{} && fit_chi2[{}]>{}    ".format(self.xtal[1],chi2_bounds[1][1],self.xtal[1],chi2_bounds[1][0])
+        print chi2_cut
 
         Cts = []
 
         ## Chi2 cuts
         if self.chi2 is not False:              
-            Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut )
-            Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut )
+            Cts.append( fiber_and_position + " && " + clock_cut ) 
+            Cts.append( fiber_and_position + " && " + clock_cut )
         ## Aeff cuts
         if self.a is not False: 
-            Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut + " && " + amp_cut + " && " + dampl_cut )    
+            Cts.append( fiber_and_position + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut )    
         ## Res. cuts
         if self.res is not False:
-            Cts.append( fiber_cut + " && " + clock_cut + " && " + position_cut + " && " + amp_cut + " && " + dampl_cut + " && " + chi2_cut )
+            Cts.append( fiber_and_position + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut + " && " + chi2_cut )
 
         # Write some info to the logfile
         with open(self.savepath+self.xtal[2]+'_log.txt', 'a') as f:
