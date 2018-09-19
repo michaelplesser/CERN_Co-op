@@ -32,7 +32,7 @@ def main():
     double_xtal_ball.SetParLimits(5 , 0 ,99 )                               # n  >= 0
     double_xtal_ball.SetParameters(1, 0.5, 0.05, 1, -1, 1)                  # Some guesses to help things along 
 
-    ## You can now use double_xtal_ball like any other TF1, IE histogram.ROOT.Fit("double_xtal_ball", "R")
+    ## You can now use double_xtal_ball like any other TF1, IE histogram.Fit("double_xtal_ball", "R")
 
 if __name__=="__main__":
     main()
