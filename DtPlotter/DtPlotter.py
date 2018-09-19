@@ -27,10 +27,10 @@ def input_arguments():
     parser.add_argument('--fit',            action='store_true',                                 help='Fit using a user function the resolution versus Aeff plot')
 
     parser.add_argument('--xb',             action='store',         default='100,-5,1000',       help='Chi2  plot bounds, "nbins,chi2min,chi2max"')
-    parser.add_argument('--sb',             action='store',         default='20,0,1500,100,-2,2',help='Sigma plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
-    parser.add_argument('--ab',             action='store',         default='100,0,1500',        help='Aeff  plot bounds, "nbins,Aeffmin,Aeffmax"')
+    parser.add_argument('--sb',             action='store',         default='20,0,2000,100,-2,2',help='Sigma plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
+    parser.add_argument('--ab',             action='store',         default='100,0,2000',        help='Aeff  plot bounds, "nbins,Aeffmin,Aeffmax"')
 
-    parser.add_argument('--am', '--ampmax' ,action='store',         default='100',               help='Amp_max lower bound, used for cuts ')
+    parser.add_argument('--am', '--ampmax' ,action='store',         default='0',                 help='Amp_max lower bound, used for cuts ')
     parser.add_argument('--da', '--dampl'  ,action='store',         default='5000',              help='dampl cut, max allowed difference in fit_ampl between xtals')
     parser.add_argument('--pc', '--poscut' ,action='store',         default='3',                 help='Position cut, side-length of a square around target center to accept')
     parser.add_argument('--lc', '--lincorr',action='store_true',    default=False,               help='Use a linear correction to counter the "walking mean" effect')
@@ -65,6 +65,8 @@ def main():
     Files     = ft.analysis_path()
 
     for f in Files:
+        print "\n","#"*int(os.popen('stty size', 'r').read().split()[1]) # print a line of ###'s, aesethetic
+        print "File:", f[0]
         
         pt    = PlotterTools(args, savepath, f)         # Class with tools for plotting, duh
         Cuts  = pt.define_cuts()                        # Get the cuts for the relevant plots, flagged in args
@@ -73,7 +75,6 @@ def main():
         for i in xrange(len(Plots)):                    # For each plot of interest
                 
                 print "\n","#"*int(os.popen('stty size', 'r').read().split()[1]) # print a line of ###'s, aesethetic
-                print "File:", f[0]
 
                 cut = Cuts[i]                           # Cuts for the current plot of interest
                 p   = Plots[i]                          # Plotting info, what to plot, what bounds, etcetc
@@ -124,9 +125,12 @@ def main():
                     hh_2 = gDirectory.Get("hh_2")
                     hh_2.SetTitle(f[1]+'_dt_resolution_vs_aeff')                    
                     hh_2.Draw()
+                    
+                    hh_2 = pt.adjust_bin_centers(hh_2)
 
                     # Fit the plot using a user defined function
                     if args.fit == True: pt.fit_resolution(hh_2)
+
 
                     # Save plots
                     print

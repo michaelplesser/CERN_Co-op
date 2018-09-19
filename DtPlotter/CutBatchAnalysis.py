@@ -127,7 +127,7 @@ def main():
     ## File path setup. phpplots_path is the "base"
     phpplots_path   = '/eos/user/m/mplesser/www/php-plots/'
     plots_path      = phpplots_path + 'plots/'
-    save_path   = phpplots_path + 'plots/{}_{}/'.format(args.freq, args.temp)
+    save_path       = phpplots_path + 'plots/{}_{}/'.format(args.freq, args.temp)
     
     if not os.path.exists(phpplots_path):   sys.exit("Error!!! no /<user>/www/php-plots folder found! \nAborting...\n")
 
@@ -142,15 +142,18 @@ def main():
                     save_path + 'damp_and_pos_and_lin_corr/',   \
                     save_path + 'chi2_and_aeff/'                ]
 
-    
+
     ## Building the commands we want to run 
     Dt_path = '/afs/cern.ch/user/m/mplesser/my_git/CERN_Co-op/DtPlotter/'
-    cmd = ['python', Dt_path+'DtPlotter.py', '--freq', args.freq, '--temp', args.temp, '-e', args.energy]   # Basic command, specifies which files/runs to use
-    chi2andaeff     = cmd + ['-x'  , '-a'   ]                                                               # Command to make chi2 and Aeff plots
-    baseline        = cmd + ['-r'  , '--fit']                                                               # Baseline dt resolution command, default cuts only
-    da      =   ['--da', '1000' ]                                                                           # Misc extra cuts to be applied
-    pc      =   ['--pc', '1'    ]                                                                           # Misc extra cuts to be applied
-    lc      =   ['--lc'         ]                                                                               # Misc extra cuts to be applied
+    shutil.copytree(Dt_path, Dt_path+'tmp/')                                                                   # You want to create a working copy to run so if you edit 
+                                                                                                                # DtPlotter in another tab it doesn't change things mid-batch
+    Dt_path += 'tmp/'
+    cmd = ['python', Dt_path+'Dt_batch.tmp', '--freq', args.freq, '--temp', args.temp, '-e', args.energy]       # Basic command, specifies which files/runs to use
+    chi2andaeff     = cmd + ['-x'  , '-a'         ]                                                             # Command to make chi2 and Aeff plots
+    baseline        = cmd + ['-r'  , '--fit', '-q']                                                             # Baseline dt resolution command, default cuts only
+    da      =   ['--da', '500']                                                                                 # Misc extra cuts to be applied
+    pc      =   ['--pc', '1'  ]                                                                                 # Misc extra cuts to be applied
+    lc      =   ['--lc'       ]                                                                                 # Misc extra cuts to be applied
     
     ## Commands you want run
     run_commands = [baseline,               \
@@ -166,11 +169,12 @@ def main():
     ## Skim resolutions from log files and exit instead of running analysis if '--summary' used
     if args.summary == True:
         skim_resolutions(args, destinations)
+        shutil.rmtree(Dt_path)
         return  
     
     ## Check to make sure all relevant directories exist/are empty if need be
-    check_directory(phpplots_path, plots_path,      False)
-    check_directory(phpplots_path, save_path,       True )
+    check_directory(phpplots_path, plots_path,              False)
+    check_directory(phpplots_path, save_path,               True )
     check_directory(phpplots_path, phpplots_path+'tmp/',    True )
     
     ## Run the commands and move them to the proper destination 
@@ -182,6 +186,7 @@ def main():
     ## Print out resolutions from the analysis  
     skim_resolutions(args, destinations)
     
+    shutil.rmtree(Dt_path)
     return
 
 if __name__=="__main__":

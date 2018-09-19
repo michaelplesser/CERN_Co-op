@@ -15,8 +15,8 @@ class FilesTools:
         
     ## Output location for plots
     def output_location(self):
-        savepath = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','plots'))+'/'           # In the same directory as DtPlotter.py, save to a /plots/ subdir
-        #savepath = '/eos/user/m/mplesser/www/php-plots/tmp/'                                            # Save to my web eos folder
+        #savepath = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','plots'))+'/'           # In the same directory as DtPlotter.py, save to a /plots/ subdir
+        savepath = '/eos/user/m/mplesser/www/php-plots/tmp/'                                            # Save to my web eos folder
         if os.path.exists(savepath) == False:                                                           # Creates an output directory if none exists
             os.mkdir(savepath)
         return savepath

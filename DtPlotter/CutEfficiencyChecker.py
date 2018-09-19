@@ -41,7 +41,6 @@ def input_arguments():
     parser.add_argument('--sb',             action='store',         default='20,0,1500,100,-2,2',help=argparse.SUPPRESS)
     parser.add_argument('--ab',             action='store',         default='100,0,1500',        help=argparse.SUPPRESS)
 
-    parser.add_argument('--xc', '--chicuts',action='store',         default='1,10,1,10',         help=argparse.SUPPRESS)
     parser.add_argument('--am', '--ampmax' ,action='store',         default='100',               help=argparse.SUPPRESS)
     parser.add_argument('--da', '--dampl'  ,action='store',         default='5000',              help=argparse.SUPPRESS)
     parser.add_argument('--pc', '--poscut' ,action='store',         default='3',                 help=argparse.SUPPRESS)
@@ -115,11 +114,6 @@ def dampl(dampcut, pt):
     xtal = pt.get_xtals()
     ampbias = pt.amp_coeff()
     return " fabs(fit_ampl[{}]-{:.4f}*fit_ampl[{}] )<{} ".format(xtal[0], float(ampbias), xtal[1], dampcut)
-def chi2(lb, ub, pt):
-    xtal = pt.get_xtals()
-    chi2_cut     = " fit_chi2[{}]>{} && fit_chi2[{}]<{} &&".format(xtal[0],lb,xtal[0],ub)
-    chi2_cut    += " fit_chi2[{}]>{} && fit_chi2[{}]<{} ".format(xtal[1],lb,xtal[1],ub)
-    return chi2_cut
 
 def main():
 
@@ -158,7 +152,6 @@ def main():
             amp(100,pt),\
             dampl(5000,pt),\
             dampl(1000,pt),\
-            chi2(0.1,10,pt),\
             baseline,\
             BaseAdv,\
             da,\
@@ -177,7 +170,6 @@ def main():
                 'amp_max>100 \t\t\t *(baseline setting)',\
                 'damplitude<5000 \t\t *(baseline setting)',\
                 'damplitude<1000',\
-                'chi2 between 0.1,10 \t\t *(baseline setting)',\
                 'baseline',\
                 'new baseline(8B+)',\
                 'baseline plus dampl<1000',\

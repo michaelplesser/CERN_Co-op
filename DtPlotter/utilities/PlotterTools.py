@@ -39,7 +39,7 @@ class PlotterTools:
 
         self.ampmax  = self.args.am
         self.dampcut = self.args.da
-        self.poscut  = self.args.pc
+        self.y_pos_cut  = self.args.pc
         
         self.freq    = self.args.freq
         self.temp    = self.args.temp
@@ -47,14 +47,16 @@ class PlotterTools:
         ## Some internal commonly used function calls
         self.xtal    = self.get_xtals()                 # From self.file's 'info' TTree, get which crystals to use
         self.ampbias = self.amp_coeff()                 # From self.xtal and self.freq, get calibration coeff.s.
+
+        ## Start a log file
+        with open(self.savepath+self.xtal[2]+'_log.txt','w') as f:
+            f.write(self.xtal[2]+" "+self.energy+" energy log file\n\n")
+
         self.x_center, self.y_center = self.find_center()   # Get the target center (more tricky than you think, check fn comments...)
 
         ## Define Aeff since it is used in many places
         self.Aeff    = "pow( 2 / ( (1/pow(fit_ampl[{}]/b_rms[{}], 2)) + (1/pow({}*fit_ampl[{}]/b_rms[{}],2)) ) , 0.5)".format(self.xtal[0],self.xtal[0],self.ampbias,self.xtal[1],self.xtal[1])     
 
-        ## Start a log file
-        with open(self.savepath+self.xtal[2]+'_log.txt','w') as f:
-            f.write(self.xtal[2]+" "+self.energy+" energy log file\n\n")
 
     ## Get crystal pair from Position (C3_down = ['C3', 'C2'], C3_up = ['C3', 'C4'])
     def get_xtals(self):
@@ -115,9 +117,9 @@ class PlotterTools:
         
         ## Check for which quadratic solution is the right one (in fit_range). There should ideally be exactly 1!!!
         if   ypluslogic and yminuslogic : sys.exit("Error!!! Y_center fitting gave two solutions in the range! Aborting... \n")
-        elif ypluslogic         : y_mean = yplus                            # yplus  is in the range and yminus isn't
-        elif yminuslogic        : y_mean = yminus                           # yminus is in the range and yplus  isn't
-        else                : sys.exit("Error!!! Y_center fitting gave no  solutions in the range! Aborting... \n") 
+        elif ypluslogic                 : y_mean = yplus                            # yplus  is in the range and yminus isn't
+        elif yminuslogic                : y_mean = yminus                           # yminus is in the range and yplus  isn't
+        else                            : sys.exit("Error!!! Y_center fitting gave no  solutions in the range! Aborting... \n") 
 
         # Some info for the log file
         with open(self.savepath+self.xtal[2]+'_log.txt', 'a') as f:
@@ -126,6 +128,33 @@ class PlotterTools:
             f.write("\tY_center:\n\t\t" + str(y_mean) + ' \n\n')
         
         return str(x_mean), str(y_mean)
+
+    def adjust_bin_centers(self, h):
+        t_file  = TFile(self.file)
+        t_tree  = t_file.Get("h4")
+        binedges = h.GetXaxis().GetXbins()
+        n_bins   = h.GetNbinsX()
+        xs = []
+        ys = []
+        xerr_low = []
+        xerr_high = []
+        yerr = []
+        for i in range(n_bins):
+            lbound = binedges.GetAt(i)
+            ubound = binedges.GetAt(i+1)
+            h_aeff  = TH1F("h_aeff", "", 100, 0, 2000)
+            t_tree.Draw(self.Aeff+">>h_aeff", TCut("{0}>={1} && {0}<={2}".format(self.Aeff, lbound, ubound)) )
+            xs.append(h_aeff.GetMean())
+            ys.append(h.GetBinContent(i+1))
+            xerr_low.append(xs[-1]-lbound)
+            xerr_high.append(ubound-xs[-1])
+            yerr.append(h.GetBinError(i+1))
+        xs = array('d', xs)
+        ys = array('d', ys)
+        xerr_low  = array('d', xerr_low)
+        xerr_high = array('d', xerr_high)
+        yerr = array('d', yerr)
+        return TGraphAsymmErrors(n_bins, xs, ys, xerr_low, xerr_high, yerr, yerr)
 
     ## Aligns the two X and Y hodoscope planes, such that X[0] = X[1]-dx_hodo_align
     def hodoscope_alignment(self):
@@ -150,53 +179,48 @@ class PlotterTools:
     ## Sweep to find the chi2 range [1/val,val] that gives 95% acceptance when used as a cut
     def chi2_range_sweep(self):
 
-        ## Checks if the chi2 sweep is complete, and if it needs to change directions because it overshot
+        ## Checks if the chi2 sweep is complete, or if it needs to change directions because it overshot
         def check_range(window, percentage):
-            completed = False   # Flag that is only set to True once the percent_acceptance is in the desired range
             if (percentage <= 0.95+window) and (percentage >= 0.95-window):
-                completed = True
-                direction = 0
+                direction = 0                                                               # Sweep is complete
             elif percentage>0.95+window:
                 direction = -1
             elif percentage<0.95+window:
                 direction = 1
-            return completed, direction
+            return completed, direction 
 
-
+        print
         tfile  = TFile(self.file)
         tree = tfile.Get("h4")
         h_chi = TH2F("h_chi","",100,-20,20,100,-20,20)
         tree.Draw("Y[0]:X[0]>>h_chi")
         tot_events = h_chi.GetEntries()
-        
-        print
         chi_vals = [0,0]    # One for xtal[0], one for xtal[1]
-        for i in range(len(self.xtal)-1):
+        for i in range(len(chi_vals)):
             print "Beginning chi2 sweep for {}".format(self.xtal[i])
 
-            chi_val = 20    # A guess to start
+            chi_val = 25                                                                    # A guess to start
+            percent_plus_minus = 0.005                                                      # What is the acceptable range of percent's around 0.95, IE 0.01->0.94-0.96
             chi_cut = "fit_chi2[{0}]>1./{1} && fit_chi2[{0}]<{1}".format(self.xtal[i],chi_val)
             tree.Draw("Y[0]:X[0]>>h_chi", TCut(chi_cut))
-
-            percent_plus_minus = 0.005                                                      # What is the acceptable range of percent's around 0.95, IE 0.01->0.94-0.96
             percent_accept     = 1.*h_chi.GetEntries()/tot_events
-            direction          = check_range(percent_plus_minus, percent_accept)[1]         # +1 or -1, does the chi_val get increased or decreased?
+            direction          = check_range(percent_plus_minus, percent_accept)            # +1 or -1, does the chi_val get increased or decreased?
             lastdirection      = direction                                                  # Memory for checking if the direction changed
             stepsize           = 8                                                          # By how much chi_val is changed each time
 
-            while check_range(percent_plus_minus, percent_accept)[0] == False:
-                direction     = check_range(percent_plus_minus, percent_accept)[1]          # +1 or -1, does the chi_val get increased or decreased?
-                if direction != lastdirection: 
-                    stepsize /= 2.                                                          # Reduce step size if we overshoot it
+            while check_range(percent_plus_minus, percent_accept) != 0:                     # Keep searching until 'direction'==0
+
+                direction     = check_range(percent_plus_minus, percent_accept)             # +1 or -1, does the chi_val get increased or decreased?
+                if direction != lastdirection:  stepsize /= 2.                              # Reduce step size if we overshoot it
 
                 chi_val = chi_val + (direction * stepsize)                                  # Adjust the chi_val in the right direction, by the current stepsize
                 chi_cut = "fit_chi2[{0}]>1./{1} && fit_chi2[{0}]<{1}".format(self.xtal[i],chi_val)
                 tree.Draw("Y[0]:X[0]>>h_chi", TCut(chi_cut))
-
-                percent_accept = 1.*h_chi.GetEntries()/tot_events
+                percent_accept  = 1.*h_chi.GetEntries()/tot_events
                 lastdirection   = direction
-            print "Range found for {}:\n\t{:.4f} - {} with {:.2f}% acceptance".format(self.xtal[i], 1./chi_val, chi_val, percent_accept*100.)
+
             chi_vals[i] = chi_val
+            print "Range found for {}:\n\t{:.4f} - {} with {:.2f}% acceptance".format(self.xtal[i], 1./chi_val, chi_val, percent_accept*100.)
 
         return [ [1./chi_vals[0], chi_vals[0]], [1./chi_vals[1], chi_vals[1]] ]
 
@@ -207,26 +231,28 @@ class PlotterTools:
         ## Misc cuts that may be applied
 
         # We have 2 hodo planes we can use for X and Y. This cut picks the best one for position and nFibresOn
+        x_pos_cut = 4                                                                           # 1/2 the x-sidelength of the position cut (in mm)
         x_align, y_align = self.hodoscope_alignment()
-        fiber_cut    = "fabs(nFibresOnX[{0}]-2)<2 && fabs(nFibresOnY[{0}]-2)<2"                 # 2 hodoscope planes we can use, [0]. [1]
-        position_cut = "(fabs( (X[{0}]-{1}) - {2})<4) && (fabs( (Y[{0}]-{3}) -{4})<{5})"        # {0}=which plane
+        fiber_cut    = "fabs(nFibresOnX[{0}]-2)<={1} && fabs(nFibresOnY[{0}]-2)<={1}"           # {0} is which of the 2 hodoscope planes we use
+                                                                                                # {1} is dfibers, see comment below
+        position_cut = "(fabs( (X[{0}]-{1}) - {2})<{3}) && (fabs( (Y[{0}]-{4}) -{5})<{6})"      # {0}=which plane
                                                                                                 # {1}=x_hodo_alignment
                                                                                                 # {2}=x_center
-                                                                                                # {3}=y_hodo_alignment
-                                                                                                # {4}=y_center
-                                                                                                # {5}=poscut
+                                                                                                # {3}=x_pos_cut (1/2 the x-sidelength)
+                                                                                                # {4}=y_hodo_alignment
+                                                                                                # {5}=y_center
+                                                                                                # {6}=poscut
+        dfibers = 1                                                                             # nfibers +- from 2 to accept. IE df = 1 -> 1-3 fibersOn 
+        fiber_and_position  = '( ('+fiber_cut.format(0,dfibers)+" && "+position_cut.format(0,0      ,self.x_center,x_pos_cut,0      ,self.y_center,self.y_pos_cut)+') || '
+        fiber_and_position += '  ('+fiber_cut.format(1,dfibers)+" && "+position_cut.format(1,x_align,self.x_center,x_pos_cut,y_align,self.y_center,self.y_pos_cut)+') )'
 
-        fiber_and_position  = '('+fiber_cut.format(0)+" && "+position_cut.format(0,0      ,self.x_center,0      ,self.y_center,self.poscut)+') || '
-        fiber_and_position += '('+fiber_cut.format(1)+" && "+position_cut.format(1,x_align,self.x_center,y_align,self.y_center,self.poscut)+')'
-
-        clock_cut    = "time_maximum[{}]==time_maximum[{}]".format(self.xtal[0],self.xtal[1])
+        clock_cut    = "1==1"#"time_maximum[{}]==time_maximum[{}]".format(self.xtal[0],self.xtal[1])
         amp_cut      = "amp_max[{}]>{} && {}*amp_max[{}]>{}".format(self.xtal[0],str(self.ampmax),self.ampbias,self.xtal[1],str(self.ampmax))
         dampl_cut    = "fabs(fit_ampl[{}]-{}*fit_ampl[{}] )<{}".format(self.xtal[0], self.ampbias, self.xtal[1], self.dampcut)
 
         chi2_bounds  = self.chi2_range_sweep()
         chi2_cut     = "fit_chi2[{}]<{} && fit_chi2[{}]>{} && ".format(self.xtal[0],chi2_bounds[0][1],self.xtal[0],chi2_bounds[0][0])
         chi2_cut    += "fit_chi2[{}]<{} && fit_chi2[{}]>{}    ".format(self.xtal[1],chi2_bounds[1][1],self.xtal[1],chi2_bounds[1][0])
-        print chi2_cut
 
         Cts = []
 
@@ -288,7 +314,7 @@ class PlotterTools:
         if self.quant == True:  ## Use quantiles
 
             ## Hybrid quantile method. Uses fixed width bins up to aeff_min_quant, then quantiles above that
-            aeff_min_quant = 400                                                                        # The Aeff value above which quantiles are used
+            aeff_min_quant = 500                                                                        # The Aeff value above which quantiles are used
             aeff_tmp       = TH1F('aeff',"", 100, aeff_min_quant, p[4])                                 # Creates a temporary histogram to find the quantiles
             tree.Draw(self.Aeff+'>>aeff', TCut(cut))
             nquants   = int(ceil(p[2]/2.)+1)                                                            # n_quantiles = nbins / 2 + 1 (round up if odd)
@@ -311,17 +337,29 @@ class PlotterTools:
         dt    = "fit_time[{}]-fit_time[{}]".format(self.xtal[0],self.xtal[1])
         dampl = "fit_ampl[{}]-{}*fit_ampl[{}]".format(self.xtal[0],self.ampbias,self.xtal[1])
 
-        hadjust = TH2F('hadjust', '', 15, -1500, 1500, 100, -2, 2)
+        # Find quantiles for the linear adjustment
+        hadjust_quant = TH1F("hadjust_quant","",10,-1000,1000)
+        tree.Draw(dampl+">>hadjust_quant", TCut(cut))
+        nbins     = 8
+        nquant    = nbins+1
+        percents  = array('d', [x/(nquant-1.) for x in range(0, nquant)]) 
+        quants    = array('d', [0 for x in range(0, nquant)])             
+        hadjust_quant.GetQuantiles(nquant, quants, percents)             
+
+        # Draw the real plot to fit linearly, with quantiles from above
+        hadjust = TH2F('hadjust', '', nbins, quants, 100, -2, 2)
         tree.Draw(dt+":"+dampl+">>hadjust", TCut(cut), "COLZ")
         hadjust.FitSlicesY()
         hadjust_1 = gDirectory.Get("hadjust_1")     # Get the means from FitSlicesY()
         hadjust_1.Draw()                            # Plot dt distribution means versus difference in crystal amplitudes
 
-
-        poly1 = TF1("poly1", "pol1", -1500, 1500)   # Fit the means linearly against dampl
+        poly1 = TF1("poly1", "pol1", -1000, 1000)   # Fit the means linearly against dampl
         poly1.SetParameter(0,0.5)   
         poly1.SetParameter(1,0.00001)
         hadjust_1.Fit("poly1", "qR")
+
+
+        self.save_files(hadjust_1, self.savepath,"{}_{}_".format(self.energy,self.xtal[2]),"dt_adjustment_fitting") 
 
         dt0   = str(poly1.GetParameter(0))          # Get the fit parameters
         slope = str(poly1.GetParameter(1))
@@ -337,7 +375,7 @@ class PlotterTools:
         print 'Dt adjustment parameters: slope = {}, y-intercept = {}, chi2: {}'.format(slope, dt0, chi2)
 
         ## Add a linear correction to dt: dt --> dt-(dampl*slope)
-        adjusted_plot = "(fit_time[{}]-fit_time[{}])-({}*({})):{}".format(self.xtal[0],self.xtal[1],slope,dampl,self.Aeff)
+        adjusted_plot = "( ({0}) - ({1} * ({2})) ):{3}".format(dt,slope,dampl,self.Aeff)
         return adjusted_plot
 
     ## Fit the resolution vs Aeff using a user-defined function
@@ -345,15 +383,16 @@ class PlotterTools:
     
         def userfit(x,par):
             if x[0]>0:
-                fit = pow(pow(par[0]/(x[0]),2)+2*pow(par[1],2), 0.5)                                
+                fit = pow(pow(par[0]/(x[0]),2) + pow(par[1]/(pow(x[0],0.5)),2) + 2*pow(par[2],2), 0.5)                                
                 return fit
-        userfit = TF1('userfit', userfit, 50, 2000, 2)  
-        userfit.SetParameters(10, 0.1)                  # Set a guess for the parameters
-        userfit.SetParNames("N", "c")                   # Name the parameters
-        histo.Fit("userfit", 'qR')                      # Fit the data
-        cterm     = 1000*userfit.GetParameter("c")      # Get the constant term's fit value (IN PICOSECONDS)
-        Nterm     = 1000*userfit.GetParameter("N")      # Get the noise    term's fit value (IN PICOSECONDS)
-        cterm_err = 1000*userfit.GetParError(1)         # Very stupidly, GetParError requires a number index, 1="c"
+        userfit = TF1('userfit', userfit, 50, 2000, 3)  
+        userfit.SetParameters(0.0001, 1, 0.05)          # Set a guess for the parameters
+        userfit.SetParNames("N", "S","c")               # Name the parameters
+        histo.Fit("userfit", 'WQRN')                    # Fit the data
+        histo.Fit("userfit", 'RQM+')                    # Fit the data
+        cterm     = 1000*abs(userfit.GetParameter("c")) # Get the constant term's fit value (IN PICOSECONDS) (abs b/c of sum in quad.)
+        Nterm     = 1000*abs(userfit.GetParameter("N")) # Get the noise    term's fit value (IN PICOSECONDS) (abs b/c of sum in quad.)
+        cterm_err = 1000*userfit.GetParError(2)         # Very stupidly, GetParError requires a number index, 1="c"
         Nterm_err = 1000*userfit.GetParError(0)         # Very stupidly, GetParError requires a number index, 0="N"
         print 'Constant term from the resolution fitting: {:.2f} +- {:.2f} ps'.format(cterm, cterm_err)
 
@@ -368,4 +407,3 @@ class PlotterTools:
             f.write("\tConstant term error: \t{:.2f} ps\n".format(cterm_err))
             f.write("\tNoise    term:       \t{:.2f} ps\n".format(Nterm)    )
             f.write("\tNoise    term error: \t{:.2f} ps\n".format(Nterm_err))
-
