@@ -6,9 +6,10 @@ import os
 import sys
 import argparse
 from ROOT import *
-from array import array
+
+from utilities import FileTools
 from utilities import PlotterTools
-from utilities import FilesTools
+from utilities import AnalysisTools
 
 def input_arguments():
     parser = argparse.ArgumentParser(description='Control plotting and cuts for inter-crystal time resolution studies')
@@ -60,15 +61,16 @@ def main():
 
     args = input_arguments()
 
-    ft        = FilesTools(args)                        # Class for defining save path and finding analysis files   
+    ## Class for defining save path and finding analysis files. Also has "save_files" fn   
+    ft        = FileTools.FileTools(args)                        
     savepath  = ft.output_location()
     Files     = ft.analysis_path()
-
     for f in Files:
         print "\n","#"*int(os.popen('stty size', 'r').read().split()[1]) # print a line of ###'s, aesethetic
         print "File:", f[0]
         
-        pt    = PlotterTools(args, savepath, f)         # Class with tools for plotting, duh
+        at    = AnalysisTools(args, savepath, f)        # Class with tools for analysis. Mainly adjustments
+        pt    = PlotterTools(args, savepath, f)         # Class with tools for plotting
         Cuts  = pt.define_cuts()                        # Get the cuts for the relevant plots, flagged in args
         Plots = pt.define_plots()                       # Get what plots are desired, flagged in args
     
@@ -96,15 +98,15 @@ def main():
                     print
                     print "Number of entries pre-cuts: ", nentries_precut
                     print "Number of entries post-cuts:", nentries_postcut
+                    print
 
                     # Save plots
-                    print
-                    pt.save_files(h, savepath, f[1], '_'+p[1])
+                    ft.save_files(h, savepath, f[1], '_'+p[1])
 
                 if len(p)==8:   # -s is for a TH2F and requires 8 params
                     
                     # Use a linear adjustment to account for the "walking-mean" effect resulting from largely uneven Aeff's
-                    if args.lc == True: p[0] = pt.dt_adjustment(tree,cut)
+                    if args.lc == True: p[0] = at.dt_linear_correction(tree,cut)
 
                     # Create the color map
                     hh = pt.make_color_map(p,'',tree)
@@ -123,20 +125,19 @@ def main():
                         logfile.write("\t\t" + str(nentries_postcut) + '\n')
 
                     # Create the resolution versus Aeff plot
-                    hh_2 = pt.fit_y_slices(hh)[1]
+                    hh_2 = at.fit_y_slices(hh)[1]
                     hh_2.SetTitle(f[1]+'_dt_resolution_vs_aeff')                    
                     hh_2.Draw()
                     
-                    hh_2 = pt.adjust_bin_centers(hh_2)
+                    hh_2 = at.adjust_bin_centers(hh_2)
 
                     # Fit the plot using a user defined function
-                    if args.fit == True: pt.fit_resolution(hh_2)
-
+                    if args.fit == True: at.fit_resolution(hh_2)
 
                     # Save plots
                     print
-                    pt.save_files(hh,   savepath, f[1], '_dt_vs_aeff_heatmap')
-                    pt.save_files(hh_2, savepath, f[1], '_resolution_vs_aeff')
+                    ft.save_files(hh,   savepath, f[1], '_dt_vs_aeff_heatmap')
+                    ft.save_files(hh_2, savepath, f[1], '_resolution_vs_aeff')
         
 
 if __name__ == "__main__":
