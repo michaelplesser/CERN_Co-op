@@ -38,7 +38,7 @@ def input_arguments():
     parser.add_argument('--fit',            action='store_true',                                 help=argparse.SUPPRESS)
 
     parser.add_argument('--xb',             action='store',         default='100,-5,1000',       help=argparse.SUPPRESS)
-    parser.add_argument('--sb',             action='store',         default='20,0,1500,100,-2,2',help=argparse.SUPPRESS)
+    parser.add_argument('--rb',             action='store',         default='20,0,1500,100,-2,2',help=argparse.SUPPRESS)
     parser.add_argument('--ab',             action='store',         default='100,0,1500',        help=argparse.SUPPRESS)
 
     parser.add_argument('--am', '--ampmax' ,action='store',         default='100',               help=argparse.SUPPRESS)
@@ -160,18 +160,18 @@ def main():
             da_pc_Adv]
 
     cutnames = ['no cuts',\
-                '2 fibers for X and Y \t\t *(baseline setting)',\
+                '2 fibers for X and Y',\
                 '1-3 fibers for X and Y',\
-                'time_maximum must match \t *(baseline setting)',\
+                'time_maximum must match' ,\
                 '8x6mm position \t\t *(baseline setting)',\
                 '8x2mm position',\
-                'naive fiber and position',\
-                'advanced fiber and position',\
+                'naive fiber and position cuts',\
+                'advanced fiber and position cuts',\
                 'amp_max>100 \t\t\t *(baseline setting)',\
                 'damplitude<5000 \t\t *(baseline setting)',\
                 'damplitude<1000',\
-                'baseline',\
-                'new baseline(8B+)',\
+                'baseline(naive fiber and pos cuts)',\
+                'new baseline(advanced fiber and pos cuts)',\
                 'baseline plus dampl<1000',\
                 'baseline plus 8x2mm pos',\
                 'baseline plus dampl<1000 plus 8x2mm pos',\

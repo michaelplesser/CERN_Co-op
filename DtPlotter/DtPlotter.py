@@ -27,7 +27,7 @@ def input_arguments():
     parser.add_argument('--fit',            action='store_true',                                 help='Fit using a user function the resolution versus Aeff plot')
 
     parser.add_argument('--xb',             action='store',         default='100,-5,1000',       help='Chi2  plot bounds, "nbins,chi2min,chi2max"')
-    parser.add_argument('--sb',             action='store',         default='20,0,2000,100,-2,2',help='Sigma plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
+    parser.add_argument('--rb',             action='store',         default='20,0,2000,100,-2,2',help='Res.  plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
     parser.add_argument('--ab',             action='store',         default='100,0,2000',        help='Aeff  plot bounds, "nbins,Aeffmin,Aeffmax"')
 
     parser.add_argument('--am', '--ampmax' ,action='store',         default='0',                 help='Amp_max lower bound, used for cuts ')
@@ -60,7 +60,7 @@ def main():
 
     args = input_arguments()
 
-    ft    = FilesTools(args)                            # Class for defining save path and finding analysis files   
+    ft        = FilesTools(args)                        # Class for defining save path and finding analysis files   
     savepath  = ft.output_location()
     Files     = ft.analysis_path()
 
@@ -93,8 +93,9 @@ def main():
                     nentries_postcut = int(h.GetEntries()) 
                     
                     h.GetXaxis().SetTitle(p[1])
-                    print "\nNumber of entries pre-cuts: ", nentries_precut
-                    print "\nNumber of entries post-cuts:", nentries_postcut
+                    print
+                    print "Number of entries pre-cuts: ", nentries_precut
+                    print "Number of entries post-cuts:", nentries_postcut
 
                     # Save plots
                     print
@@ -113,16 +114,16 @@ def main():
                     tree.Draw(p[0]+">>hh", TCut(cut), "COLZ")
                     nentries_postcut  = int(hh.GetEntries())    
 
-                    print "\nNumber of entries pre-cuts:", nentries_precut
-                    print "Number of entries post-cuts: ", nentries_postcut
+                    print
+                    print "Number of entries pre-cuts:", nentries_precut
+                    print "Number of entries post-cuts: {} \t {:5.2f}% efficiency ".format(nentries_postcut, 100.*nentries_postcut/nentries_precut)
                     with open(savepath+f[1].split('_')[-1]+'_log.txt', 'a') as logfile:
                         logfile.write("\nNumber of entries ( hh.GetEntries() ):\n\tpre-cuts:\n")
                         logfile.write("\t\t" + str(nentries_precut)  + '\n')    
                         logfile.write("\t\t" + str(nentries_postcut) + '\n')
 
                     # Create the resolution versus Aeff plot
-                    hh.FitSlicesY()
-                    hh_2 = gDirectory.Get("hh_2")
+                    hh_2 = pt.fit_y_slices(hh)[1]
                     hh_2.SetTitle(f[1]+'_dt_resolution_vs_aeff')                    
                     hh_2.Draw()
                     

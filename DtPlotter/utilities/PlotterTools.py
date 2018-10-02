@@ -4,10 +4,18 @@
 
 import os   
 import sys
+import signal
 import numpy as np
 from ROOT import *
 from array import array
 from math   import floor, ceil
+
+## Makes for clean exits out of while loops
+def signal_handler(signal, frame):
+    print("\nprogram exiting gracefully")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
 
 class PlotterTools:
 
@@ -34,7 +42,7 @@ class PlotterTools:
         self.fit     = self.args.fit
 
         self.xbins   = self.args.xb
-        self.sbins   = self.args.sb
+        self.rbins   = self.args.rb
         self.abins   = self.args.ab
 
         self.ampmax  = self.args.am
@@ -70,18 +78,18 @@ class PlotterTools:
 
     ## Get the amplitude calibration coefficient
     def amp_coeff(self):
-        if   self.freq == '160MHz':
+        if self.temp == '18deg':
             if   self.xtal[1] == 'C4':  amp_calibration = 0.944866 
             elif self.xtal[1] == 'C2':  amp_calibration = 0.866062 
-        elif self.freq == '120MHz':
-            if   self.xtal[1] == 'C4':  amp_calibration = 0.948113 
-            elif self.xtal[1] == 'C2':  amp_calibration = 0.869192 
+        elif self.temp == '9deg':
+            if   self.xtal[1] == 'C4':  amp_calibration = 0.926351
+            elif self.xtal[1] == 'C2':  amp_calibration = 0.849426
 
         return str(amp_calibration)
     
     ## Find the center of the target
     def find_center(self):  
-        
+
         t_file  = TFile(self.file)
         t_tree  = t_file.Get("h4")
         fit_range = 2,7
@@ -90,7 +98,7 @@ class PlotterTools:
                                                                             # Check "dampl:Y[0]", and make sure that y=1 in fit_range
         # x mean found by averaging the Hodo.X[0] plot. Valid since amplitudes are basically independent of X
         t_tree.Draw("X[0]>>hx")
-        threshold = hx.GetMaximum()/100
+        threshold = hx.GetMaximum()/10
         lower_bin = hx.FindFirstBinAbove(threshold)
         upper_bin = hx.FindLastBinAbove(threshold)
         x_mean = hx.GetBinCenter((upper_bin+lower_bin)/2)
@@ -103,7 +111,7 @@ class PlotterTools:
         poly2.SetParameter(0,5)                                             # Get the parameters in the right ballpark to start
         poly2.SetParameter(1,-1)
         poly2.SetParameter(2,0.1)
-        hy.Fit("poly2", "qR")
+        hy.Fit("poly2", "QR")
         p0   = float(poly2.GetParameter(0))-1.                              # Subtract one because we want to solve p2*x^2 + p1*x + p0 = 1
         p1   = float(poly2.GetParameter(1))
         p2   = float(poly2.GetParameter(2))
@@ -124,37 +132,38 @@ class PlotterTools:
         # Some info for the log file
         with open(self.savepath+self.xtal[2]+'_log.txt', 'a') as f:
             f.write("Target center position:\n")
-            f.write("\tX_center:\n\t\t" + str(x_mean) + ' \n')
-            f.write("\tY_center:\n\t\t" + str(y_mean) + ' \n\n')
+            f.write("\tX_center:\n\t\t {} \n".format(x_mean))
+            f.write("\tY_center:\n\t\t {} \n\n".format(y_mean))
         
         return str(x_mean), str(y_mean)
 
+    ## When we assign a y-vale (resolution) to a bin, by default it is assigned to the mid-point as an x-value (Aeff).
+    ## Really we should assign it to be the mean of the Aeff distribution in that bin. This fn makes that adjustmenti.
     def adjust_bin_centers(self, h):
+
         t_file  = TFile(self.file)
         t_tree  = t_file.Get("h4")
-        binedges = h.GetXaxis().GetXbins()
-        n_bins   = h.GetNbinsX()
+
+        n_bins = h.GetN()
         xs = []
-        ys = []
-        xerr_low = []
+        ys = h.GetY()
+        xerr_low  = []
         xerr_high = []
         yerr = []
         for i in range(n_bins):
-            lbound = binedges.GetAt(i)
-            ubound = binedges.GetAt(i+1)
+            lbound = h.GetX()[i] - h.GetEXlow()[i]                                                              # Lower bin edge of bini
+            ubound = h.GetX()[i] + h.GetEXhigh()[i]                                                             # Upper bin edge of bini
             h_aeff  = TH1F("h_aeff", "", 100, 0, 2000)
-            t_tree.Draw(self.Aeff+">>h_aeff", TCut("{0}>={1} && {0}<={2}".format(self.Aeff, lbound, ubound)) )
+            t_tree.Draw(self.Aeff+">>h_aeff", TCut("{0}>={1} && {0}<={2}".format(self.Aeff, lbound, ubound)) )  # Plot Aeff for just bini
             xs.append(h_aeff.GetMean())
-            ys.append(h.GetBinContent(i+1))
-            xerr_low.append(xs[-1]-lbound)
-            xerr_high.append(ubound-xs[-1])
-            yerr.append(h.GetBinError(i+1))
+            xerr_low.append(xs[-1]-lbound)                                                                      # Xerr reflects the binwidth with the center shifted
+            xerr_high.append(ubound-xs[-1])                                                                     # Xerr_low + xerr_high = original binwidth
+            yerr.append(h.GetErrorY(i))
         xs = array('d', xs)
-        ys = array('d', ys)
         xerr_low  = array('d', xerr_low)
         xerr_high = array('d', xerr_high)
         yerr = array('d', yerr)
-        return TGraphAsymmErrors(n_bins, xs, ys, xerr_low, xerr_high, yerr, yerr)
+        return TGraphAsymmErrors(len(xs), xs, ys, xerr_low, xerr_high, yerr, yerr)
 
     ## Aligns the two X and Y hodoscope planes, such that X[0] = X[1]-dx_hodo_align
     def hodoscope_alignment(self):
@@ -187,7 +196,7 @@ class PlotterTools:
                 direction = -1
             elif percentage<0.95+window:
                 direction = 1
-            return completed, direction 
+            return direction 
 
         print
         tfile  = TFile(self.file)
@@ -211,7 +220,7 @@ class PlotterTools:
             while check_range(percent_plus_minus, percent_accept) != 0:                     # Keep searching until 'direction'==0
 
                 direction     = check_range(percent_plus_minus, percent_accept)             # +1 or -1, does the chi_val get increased or decreased?
-                if direction != lastdirection:  stepsize /= 2.                              # Reduce step size if we overshoot it
+                if direction != lastdirection:  stepsize /= 2.                              # Reduce step size if we overshoot it and changed direction
 
                 chi_val = chi_val + (direction * stepsize)                                  # Adjust the chi_val in the right direction, by the current stepsize
                 chi_cut = "fit_chi2[{0}]>1./{1} && fit_chi2[{0}]<{1}".format(self.xtal[i],chi_val)
@@ -296,7 +305,7 @@ class PlotterTools:
             Plts.append([self.Aeff, "aeff_response", bins[0], bins[1], bins[2]])
 
         if self.res is not False:
-            sigbounds = self.sbins.split(',')
+            sigbounds = self.rbins.split(',')
             bins      = [ int(sigbounds[0]), int(sigbounds[1]), int(sigbounds[2]), int(sigbounds[3]), int(sigbounds[4]), int(sigbounds[5]) ]
             Plts.append(["fit_time[{}]-fit_time[{}]:{}".format(self.xtal[0],self.xtal[1],self.Aeff), "resolution_vs_aeff", bins[0], bins[1], bins[2], bins[3], bins[4], bins[5]])
 
@@ -311,10 +320,10 @@ class PlotterTools:
 
     ## Make the dt vs aeff color map, and use quantiles if so directed
     def make_color_map(self, p, cut, tree):
-        if self.quant == True:  ## Use quantiles
+        if self.quant == True:      ## Use quantiles
 
             ## Hybrid quantile method. Uses fixed width bins up to aeff_min_quant, then quantiles above that
-            aeff_min_quant = 500                                                                        # The Aeff value above which quantiles are used
+            aeff_min_quant = 600                                                                        # The Aeff value above which quantiles are used
             aeff_tmp       = TH1F('aeff',"", 100, aeff_min_quant, p[4])                                 # Creates a temporary histogram to find the quantiles
             tree.Draw(self.Aeff+'>>aeff', TCut(cut))
             nquants   = int(ceil(p[2]/2.)+1)                                                            # n_quantiles = nbins / 2 + 1 (round up if odd)
@@ -326,77 +335,152 @@ class PlotterTools:
             bins = array('d', [fixed_bin_size*n for n in range(nfixed_bins)]) + quantiles               # Fixed width bins up to aeff_min_quant, then uses quantiles
             hh   = TH2F('hh', self.file_title+'_dt_vs_aeff_heatmap', p[2], bins, p[5], p[6], p[7])      # Return a TH2F with quantile binning
 
-        else:           ## Use fixed width bins
+        else:                       ## Use fixed width bins
             hh = TH2F('hh', self.file_title+'_dt_vs_aeff_heatmap', p[2], p[3], p[4], p[5], p[6], p[7])  # Return a TH2F with fixed-width binning    
 
         return hh
 
     ## Adjust dT using a linear fit, to correct "mean walking" location effects in the deposition
     def dt_adjustment(self, tree, cut):
+
+        ## Checks to see if any points shouldn't be trusted based on a large residual, and returns TGraph without those points
+        ## Helps the linear correction remain accurate when one or more fits from fit_y_slices fails
+        def remove_outliers(gr):                                                    # gr input is a TGraphAsymmErrors TObject
+            x         = array('d', [])                                              # Initialize the arrays to create the filteres TGraph output
+            y         = array('d', [])
+            xerr_low  = array('d', [])
+            xerr_high = array('d', [])
+            yerr      = array('d', [])
+            median    = np.median(list(filter(lambda x: abs(x)>1e-1 and abs(x)<2, [gr.GetY()[i] for i in range(nbins)])))
+            n_points  = gr.GetN()
+            for i in range(n_points):
+                if abs(gr.GetY()[i] - median) < 0.15:                               # Only accept points who have a residual between resolution fit means and the median <200ps
+                    x.append(gr.GetX()[i])                                          # Add all the usual points needed for a TGraphAsymmError constructor, etcetc
+                    y.append(gr.GetY()[i])
+                    xerr_low.append(gr.GetEXlow()[i])
+                    xerr_high.append(gr.GetEXhigh()[i])
+                    yerr.append(gr.GetEYhigh()[i])
+                else:
+                    print "Outlier found at point {0}: fit_mean = {1:4.3f} \t median fit_mean = {2:4.3f} \t residual = {3:4.3f}".format(i, gr.GetY()[i], median, abs(gr.GetY()[i] - median))
+            return TGraphAsymmErrors(len(x), x, y, xerr_low, xerr_high, yerr, yerr) # Return a TGraph with any outliers removed
         
-        dt    = "fit_time[{}]-fit_time[{}]".format(self.xtal[0],self.xtal[1])
-        dampl = "fit_ampl[{}]-{}*fit_ampl[{}]".format(self.xtal[0],self.ampbias,self.xtal[1])
+        ## Draw the plot and fit y slices to fit linearly
+        nbins = 30
+        fit_lbound = float(self.y_center) - 4.0
+        fit_ubound = float(self.y_center) + 4.0
+        hadjust    = TH2F('hadjust', '', nbins, fit_lbound, fit_ubound, 100, -2, 2)
+        dt         = "fit_time[{}]-fit_time[{}]".format(self.xtal[0],self.xtal[1])
+        tree.Draw(dt+":Y[0]>>hadjust", TCut(cut), "COLZ")
+        hadjust_1  = self.fit_y_slices(hadjust)[0]                                  # Mean of the dt distribution plotted against Y[0]
+        hadjust_1  = remove_outliers(hadjust_1)
+        self.save_files(hadjust_1, self.savepath,"{}_{}_".format(self.energy,self.xtal[2]),"dt_adjustment") # Saving post-fit causes a seg fault in terminal mode ROOT
 
-        # Find quantiles for the linear adjustment
-        hadjust_quant = TH1F("hadjust_quant","",10,-1000,1000)
-        tree.Draw(dampl+">>hadjust_quant", TCut(cut))
-        nbins     = 8
-        nquant    = nbins+1
-        percents  = array('d', [x/(nquant-1.) for x in range(0, nquant)]) 
-        quants    = array('d', [0 for x in range(0, nquant)])             
-        hadjust_quant.GetQuantiles(nquant, quants, percents)             
+        slope = 1                                                                   # Enter the coming while loop directly instead of fitting once, getting the slope, and then entering
+        if hadjust_1.GetN() < 4:                                                    # If outlier removal leaves < 4 points, that's not enough for a trustworthy fit
+            print "Not enough points remaining for accurate linear fit. Dt vs Dampl slope set to 0"
+            slope = 0
 
-        # Draw the real plot to fit linearly, with quantiles from above
-        hadjust = TH2F('hadjust', '', nbins, quants, 100, -2, 2)
-        tree.Draw(dt+":"+dampl+">>hadjust", TCut(cut), "COLZ")
-        hadjust.FitSlicesY()
-        hadjust_1 = gDirectory.Get("hadjust_1")     # Get the means from FitSlicesY()
-        hadjust_1.Draw()                            # Plot dt distribution means versus difference in crystal amplitudes
+        print
+        refit_counter = 1
+        max_n_refits  = 10
+        poly1 = TF1("poly1", "pol1", fit_lbound, fit_ubound)                      
+        while (abs(slope) > 0.1):                                                   # Helps tell if the fit failed
+            print "Attempting Dt linear fit {}/{}".format(refit_counter, max_n_refits)
+            ## Reset parameters randomly (within ranges) and attempt a fit
+            tr = TRandom()
+            tr.SetSeed(0)
+            poly1.SetParameter(0, tr.Uniform(-2,2)      )   
+            poly1.SetParameter(1, tr.Uniform(-0.1, 0.1) )
+            poly1.SetParLimits(0, -2  , 2)
+            poly1.SetParLimits(1, -0.5, 0.5)
+            hadjust_1.Fit("poly1", "QFWBR")
+ 
+            ## Get the fit parameters
+            dt0   = poly1.GetParameter(0)                             
+            slope = poly1.GetParameter(1)
+            if poly1.GetNDF() != 0:
+                red_chi2  = hadjust_1.Chisquare(poly1)/poly1.GetNDF()
+            else: 
+                red_chi2 = 'N/A'
+             
+            if (refit_counter == max_n_refits) and (abs(slope) > 0.1):
+                print "Dt adjustment linear fit failed. Dt vs Y[0] slope set to 0"
+                slope = 0
+            refit_counter += 1
 
-        poly1 = TF1("poly1", "pol1", -1000, 1000)   # Fit the means linearly against dampl
-        poly1.SetParameter(0,0.5)   
-        poly1.SetParameter(1,0.00001)
-        hadjust_1.Fit("poly1", "qR")
-
-
-        self.save_files(hadjust_1, self.savepath,"{}_{}_".format(self.energy,self.xtal[2]),"dt_adjustment_fitting") 
-
-        dt0   = str(poly1.GetParameter(0))          # Get the fit parameters
-        slope = str(poly1.GetParameter(1))
-        chi2  = str(hadjust_1.Chisquare(poly1))
+        self.save_files(hadjust_1, self.savepath,"{}_{}_".format(self.energy,self.xtal[2]),"dt_adjustment_fitted") # Post-fit plots DO show correctly on EOS-webpage, so save pre- and post-fit 
+        print 'Dt adjustment parameters: slope = {:.7f}, y-intercept = {:.3f}, reduced chi2: {}'.format(slope, dt0, red_chi2)
         
         ## Some info for the log file       
         with open(self.savepath+self.xtal[2]+'_log.txt', 'a') as f:
             f.write("\nDt adjustment parameters:\n")
-            f.write("\tSlope:   \t\t" + slope + "\n")
-            f.write("\tY-intercept: \t\t" + dt0   + "\n")
-            f.write("\tchi2:    \t\t" + chi2  + "\n")
-
-        print 'Dt adjustment parameters: slope = {}, y-intercept = {}, chi2: {}'.format(slope, dt0, chi2)
+            f.write("\tSlope:       \t\t {}\n".format(slope))
+            f.write("\tY-intercept: \t\t {}\n".format(dt0))
+            f.write("\tReduced chi2:\t\t {}\n".format(red_chi2))
 
         ## Add a linear correction to dt: dt --> dt-(dampl*slope)
-        adjusted_plot = "( ({0}) - ({1} * ({2})) ):{3}".format(dt,slope,dampl,self.Aeff)
+        adjusted_plot = "( ({0}) - ( {1} * (Y[0]-{2}) ) ):{3}".format(dt,slope,self.y_center,self.Aeff)
         return adjusted_plot
 
+
     ## Fit the resolution vs Aeff using a user-defined function
-    def fit_resolution(self, histo):
+    def fit_resolution(self, gr):
     
+        ## The function used to fit our distribution. N/Aeff (+) sqrt(2)*c, (+) -> sum in quadrature
         def userfit(x,par):
             if x[0]>0:
-                fit = pow(pow(par[0]/(x[0]),2) + pow(par[1]/(pow(x[0],0.5)),2) + 2*pow(par[2],2), 0.5)                                
+                fit = pow(pow(par[0]/(x[0]),2) + 2*pow(par[1],2), 0.5)                                
                 return fit
-        userfit = TF1('userfit', userfit, 50, 2000, 3)  
-        userfit.SetParameters(0.0001, 1, 0.05)          # Set a guess for the parameters
-        userfit.SetParNames("N", "S","c")               # Name the parameters
-        histo.Fit("userfit", 'WQRN')                    # Fit the data
-        histo.Fit("userfit", 'RQM+')                    # Fit the data
-        cterm     = 1000*abs(userfit.GetParameter("c")) # Get the constant term's fit value (IN PICOSECONDS) (abs b/c of sum in quad.)
-        Nterm     = 1000*abs(userfit.GetParameter("N")) # Get the noise    term's fit value (IN PICOSECONDS) (abs b/c of sum in quad.)
-        cterm_err = 1000*userfit.GetParError(2)         # Very stupidly, GetParError requires a number index, 1="c"
-        Nterm_err = 1000*userfit.GetParError(0)         # Very stupidly, GetParError requires a number index, 0="N"
-        print 'Constant term from the resolution fitting: {:.2f} +- {:.2f} ps'.format(cterm, cterm_err)
+        userfit = TF1('userfit', userfit, 1, 2000, 2)  
+        userfit.SetParameters(1, 0.05)                     # Set a guess for the parameters (N, c)
+    
+        print
+        fit_status = ''
+        refit_counter = 0
+        max_n_refits  = 25
+        while (not 'OK' in fit_status) and (not 'CONVERGED' in fit_status):                         # As long as the fit status is not a good one, keep trying
+            print 'Attempting resolution fit {}/{}'.format(refit_counter+1, max_n_refits)
+            tr = TRandom()
+            tr.SetSeed(0)
+            userfit.SetParameter(0, tr.Uniform(-1, 1   ))  # Re-guess the parameters
+            userfit.SetParameter(1, tr.Uniform( 0, 0.05))  # Re-guess the parameters 
+            fit = gr.Fit("userfit", "QRM")                 # Try the fit again
+            fit_status = gMinuit.fCstatu                   # Get the fit status
+            refit_counter += 1
 
-        gStyle.SetOptFit(1)                             # Include fit parameters in the stats box
+            if ('OK' in fit_status) or ('CONVERGED' in fit_status):
+                if (abs(userfit.GetParameter(1)) < 0.001) or (abs(userfit.GetParameter(1)) > 0.2):  # We know the resolution shouldn't be outside 1-200 ps
+                    fit_status = ''                                                                 # Don't believe status='OK' if we know the value is bad
+                    print 'Bad constant term value, fit discarded'
+                else:                                                                               # If the cterm seems reasonable, accept the fit
+                    print 'Fit successful!'
+
+            if refit_counter == max_n_refits:
+                print 'Refit limit reached, resolution fit failed.'
+                fit_status = 'OKNOTOK'                                                              # Exit the while loop, but know it failed. (Radiohead? Anyone?)
+
+        if refit_counter < max_n_refits:                            # If the fit succeeded before the refit cap was reached...
+            cterm     = 1000*abs(userfit.GetParameter(1))           # Get the constant term's fit value (IN PICOSECONDS) (abs b/c of sum in quad.)
+            Nterm     = 1000*abs(userfit.GetParameter(0))           # Get the noise    term's fit value (IN PICOSECONDS) (abs b/c of sum in quad.)
+            cterm_err = 1000*userfit.GetParError(1)        
+            Nterm_err = 1000*userfit.GetParError(0)        
+            if userfit.GetNDF() != 0:
+                red_chi2  = gr.Chisquare(userfit)/userfit.GetNDF()   # Get the reduced chi2 of the fit
+            else:
+                red_chi2  = 'N/A'
+    
+            print '\tResolution fit status:                     {}'.format(fit_status)
+            print '\tReduced fit chi2:                          {}'.format(red_chi2)
+            print '\tConstant term from the resolution fitting: {:.2f} +- {:.2f} ps'.format(cterm, cterm_err)
+
+        else:                                               # If we hit the refit limit, don't believe the fit values
+            cterm     = 0
+            Nterm     = 0
+            cterm_err = 0
+            Nterm_err = 0
+            red_chi2  = 'N/A'
+
+        gStyle.SetOptFit(1)                                 # Include fit parameters in the stats box
         gPad.Modified()
         gPad.Update()
 
@@ -407,3 +491,96 @@ class PlotterTools:
             f.write("\tConstant term error: \t{:.2f} ps\n".format(cterm_err))
             f.write("\tNoise    term:       \t{:.2f} ps\n".format(Nterm)    )
             f.write("\tNoise    term error: \t{:.2f} ps\n".format(Nterm_err))
+            f.write("\tReduced  fit chi2:   \t{}       \n".format(red_chi2))
+
+    ## Advanced version of FitSlicesY(). Uses a double sided crystal ball fit, and in bins with low statistics
+    ## switches back to gaussian for performance reasons
+    def fit_y_slices(self, h):
+
+        ## Double sided crystal ball function
+        def double_xtal_ball(x,par):
+            f1 = TF1('f1','crystalball')
+            f2 = TF1('f2','crystalball')
+            f1.SetParameters(par[0], par[1], par[2], par[3], par[5])            # The trick is to share all variables except 
+            f2.SetParameters(par[0], par[1], par[2], par[4], par[5])            # 'A', which determines the side of the tail
+            return f1(x) + f2(x)
+
+        double_xtal_ball = TF1("double_xtal_ball", double_xtal_ball, -2, 2, 6)  # -2 to 2 is my fit range
+        double_xtal_ball.SetParNames("c","mu","sig","A1","A2","n")              
+        
+        ## Set par. limits to help the minimizer converge
+        ## Perhaps overkill, but at least set A1 and A2 to have different signs, one for each tail!!!
+        ## Example values, tune based on your specific usage case. Not all limits may be necessary for you
+        double_xtal_ball.SetParLimits(0 , 0 ,999)                               # c >= 0
+        double_xtal_ball.SetParLimits(1 ,-2 ,2  )                               # mu between -2 and 2
+        double_xtal_ball.SetParLimits(2 , 0 ,0.2)                               # sigma between 0 and 200ps
+        double_xtal_ball.SetParLimits(3 , 0 ,99 )                               # A1 >= 0
+        double_xtal_ball.SetParLimits(4 ,-99,0  )                               # A2 <= 0
+        double_xtal_ball.SetParLimits(5 , 0 ,99 )                               # n  >= 0
+        double_xtal_ball.SetParameters(1, 0.5, 0.05, 1, -1, 1)                  # Some guesses to help things along 
+
+        print
+        bins     = []
+        hh_1_tmp = []
+        hh_2_tmp = []
+        n_bins   = h.GetXaxis().GetNbins()
+        for bini in range(1, n_bins):
+
+            h_p = h.ProjectionY('h_p',bini,bini) # Get the distribution in y as  TH1 for bin# 'bini'
+             
+            refit_counter = 0
+            max_n_refits  = 25
+            min_n_events  = 50
+            n_entries = int(h_p.GetEntries())
+
+            if (n_entries > min_n_events): 
+
+                fit = h_p.Fit("double_xtal_ball", "RQM")
+                status = gMinuit.fCstatu    # Get the fit status, IE 'OK', 'CONVERGED', 'FAILED'
+                while (not 'OK' in status) and (not 'CONVERGED' in status): # These are the good ones :(
+
+                    print 'Fit failed for slice number {} with {} entries. Attempting refit {}/{}'.format(bini, n_entries, refit_counter+1, max_n_refits)
+                    tr = TRandom()
+                    tr.SetSeed(0)
+                    double_xtal_ball.SetParameter(0, tr.Uniform(  0, 10 ))  # Reset the parameters (add a small delta??)
+                    double_xtal_ball.SetParameter(1, tr.Uniform( -2, 2  ))  # Reset the parameters (add a small delta??)
+                    double_xtal_ball.SetParameter(2, tr.Uniform(  0, 0.2))  # Reset the parameters (add a small delta??)
+                    double_xtal_ball.SetParameter(3, tr.Uniform(  0, 99 ))  # Reset the parameters (add a small delta??)
+                    double_xtal_ball.SetParameter(4, tr.Uniform(-99, 0  ))  # Reset the parameters (add a small delta??)
+                    fit = h_p.Fit("double_xtal_ball", "RBQ")                # Try the fit again
+                    status = gMinuit.fCstatu                                # Get the fit status
+                    refit_counter += 1
+
+                    if ('OK' in status) or ('CONVERGED' in status):
+                        print 'Refit successful!'
+                    if refit_counter == max_n_refits:
+                        print 'Refit limit reached, ommiting slice {}'.format(bini)
+                        status = 'OKNOTOK'
+
+                if refit_counter != max_n_refits:
+                 
+                    mean = double_xtal_ball.GetParameter(1)
+                    res  = double_xtal_ball.GetParameter(2)
+                    mean_err = double_xtal_ball.GetParError(1)
+                    res_err  = double_xtal_ball.GetParError(2)
+
+                    lowedge  = h.GetXaxis().GetBinLowEdge(bini)
+                    highedge = h.GetXaxis().GetBinLowEdge(bini+1)
+                    center   = (lowedge + highedge) / 2.
+
+                    bins.append( [lowedge, highedge, center] )
+                    hh_1_tmp.append([mean, mean_err])
+                    hh_2_tmp.append([res, res_err])
+
+        print
+        xs              = array('d', [ x[2] for x in bins])
+        xerr            = array('d', [(x[1]-x[0])/2. for x in bins])
+        means           = array('d', [ x[0] for x in hh_1_tmp])
+        means_err       = array('d', [ x[1] for x in hh_1_tmp])
+        resolutions     = array('d', [ x[0] for x in hh_2_tmp])
+        resolutions_err = array('d', [ x[1] for x in hh_2_tmp])
+        hh_1 = TGraphAsymmErrors(len(bins), xs, means       , xerr, xerr, means_err      , means_err      ) 
+        hh_2 = TGraphAsymmErrors(len(bins), xs, resolutions , xerr, xerr, resolutions_err, resolutions_err) 
+
+        return hh_1, hh_2
+
