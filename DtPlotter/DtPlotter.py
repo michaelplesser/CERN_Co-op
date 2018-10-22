@@ -4,6 +4,7 @@
 
 import os
 import sys
+import signal
 import argparse
 from ROOT import *
 
@@ -11,14 +12,20 @@ from utilities import FileTools
 from utilities import PlotterTools
 from utilities import AnalysisTools
 
+## Makes for clean exits out of while loops
+def signal_handler(signal, frame):
+    print("\program exiting gracefully")
+    sys.exit(0)
+signal.signal(signal.SIGINT, signal_handler)
+
 def input_arguments():
     parser = argparse.ArgumentParser(description='Control plotting and cuts for inter-crystal time resolution studies')
     
     parser.add_argument('-d'  ,    type=str,                                                     help='Use all the files in the given directory for analysis ')
     parser.add_argument('-f'  ,    type=str,                                                     help='Use the given file for analysis(use the absolute path)')
-    parser.add_argument('-e'  ,    type=str,                                                     help='Energy to use for analysis (IE "250GeV" or "compiled")')
-    parser.add_argument('--freq',  type=str,                        default='160MHz',            help='Sampling frequency,   IE "160MHz" or "120 MHz"')
-    parser.add_argument('--temp',  type=str,                        default='18deg' ,            help='Sampling temperature, IE "18deg"  or "9deg"')
+    parser.add_argument('-e'  ,    type=str,                        default='compiled',          help='Energy to use for analysis (IE "250GeV" or "compiled")')
+    parser.add_argument('--freq',  type=str,                        default='160MHz'  ,          help='Sampling frequency,   IE "160MHz" or "120 MHz"')
+    parser.add_argument('--temp',  type=str,                        default='18deg'   ,          help='Sampling temperature, IE "18deg"  or "9deg"')
 
     parser.add_argument('-x'  ,             action='store_true',                                 help='Create plots for fit_chi2[C3] and fit_chi2[<2nd xtal>]')
     parser.add_argument('-a'  ,             action='store_true',                                 help='Create effective voltage (Aeff) plot')
@@ -32,7 +39,7 @@ def input_arguments():
     parser.add_argument('--ab',             action='store',         default='100,0,2000',        help='Aeff  plot bounds, "nbins,Aeffmin,Aeffmax"')
 
     parser.add_argument('--am', '--ampmax' ,action='store',         default='0',                 help='Amp_max lower bound, used for cuts ')
-    parser.add_argument('--da', '--dampl'  ,action='store',         default='5000',              help='dampl cut, max allowed difference in fit_ampl between xtals')
+    parser.add_argument('--da', '--dampl'  ,action='store',         default='100000',            help='dampl cut, max allowed difference in fit_ampl between xtals')
     parser.add_argument('--pc', '--poscut' ,action='store',         default='3',                 help='Position cut, side-length of a square around target center to accept')
     parser.add_argument('--lc', '--lincorr',action='store_true',    default=False,               help='Use a linear correction to counter the "walking mean" effect')
 
@@ -87,7 +94,7 @@ def main():
 
                 if len(p)==5:   # -x and -a options are for TH1F, and require 5 params 
 
-                    # Create the desired plot
+                    ## Create the desired plot
                     h = TH1F('h', f[1]+'_'+p[1], p[2], p[3], p[4])  
                     tree.Draw(p[0]+'>>h')
                     nentries_precut  = int(h.GetEntries()) 
@@ -100,12 +107,12 @@ def main():
                     print "Number of entries post-cuts:", nentries_postcut
                     print
 
-                    # Save plots
+                    ## Save plots
                     ft.save_files(h, savepath, f[1], '_'+p[1])
 
-                if len(p)==8:   # -s is for a TH2F and requires 8 params
+                if len(p)==8:   # -r is for a TH2F and requires 8 params
                     
-                    # Use a linear adjustment to account for the "walking-mean" effect resulting from largely uneven Aeff's
+                    ## Use a linear adjustment to account for the "walking-mean" effect resulting from largely uneven Aeff's
                     if args.lc == True: p[0] = at.dt_linear_correction(tree,cut)
 
                     # Create the color map

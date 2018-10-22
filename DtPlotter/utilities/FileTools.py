@@ -6,6 +6,7 @@ import os
 from ROOT import TFile
 
 class FileTools:
+
     def __init__(self, args):
         self.args = args
         self.freq = self.args.freq
@@ -30,25 +31,28 @@ class FileTools:
 
     ## Define location of files to be analyzed
     def analysis_path(self):
-        
+        def e_and_p(filei):                                                                             # Returns the energy and position of a file from it's name
+            return filei.split('_')[-2]+'_'+filei.split('_')[-1].split('.')[0]                          # Assumes the filename of form '<blablabla>_e_p.root'
+
         print
-        Files = []                                                                                          # Format: [ ["name", "<energy>_<position>"], ...]
-        if self.args.d is None:  self.args.d = self.defaultanalysispath                                     # Use default directory if no -d flag raised
+        Files = []                                                                                      # Format: [ ["name", "<energy>_<position>"], ...]
+        
+        if self.args.f is not None:                                                                     # File specified
+            file = self.args.f
+            Files.append( [ file, e_and_p(file) ] )                       
+            print "Found file: ", file
+            return Files
+
+        if self.args.d is None:  self.args.d = self.defaultanalysispath                                 # Use default directory if no -d flag raised
         for file in os.listdir(self.args.d):
             if file.endswith('.root'):
-                energy_position = file.split('_')[-2]+'_'+file.split('_')[-1].split('.')[0]                 # Assumes the filename of form <blablabla>_energy_position.root
-                if self.args.f is not None:                                                                 # File specified
-                    file = self.args.f
-                    Files.append( [ file, energy_position ] )                       
-                    print "Found file: ", file
-                    return Files
 
-                if self.args.e is not None:                                                                 # Energy specified, only adds files with that energy
+                if self.args.e is not None:                                                             # Energy specified, only adds files with that energy
                     if file.split('_')[-2]==self.args.e:
-                        Files.append( [ self.args.d + file, energy_position ] )
+                        Files.append( [ self.args.d + file, e_and_p(file) ] )
                         print "Found file: ", self.args.d + file
-                else:                                                                                       # Add all root files in analysispath
-                    Files.append( [ self.args.d + file, energy_position ] )
+                else:                                                                                   # Add all root files in analysispath
+                    Files.append( [ self.args.d + file, e_and_p(file) ] )
                     print "Found file: ", self.args.d + file
 
         return Files

@@ -1,50 +1,39 @@
-#!/usr/bin/env python3
+#!/usr/bin/python
 
 #By Michael Plesser
 
 import os
 import sys
+import signal
 import shutil
 import argparse
 import subprocess
 from ROOT import *
-from utilities import FilesTools
-from utilities import PlotterTools
+from utilities import FileTools
+from utilities import RunInfoTools
 
 '''
         Code to check the efficiencies of cuts
 '''
  
+## Makes for clean exits out of while loops
+def signal_handler(signal, frame):
+    print("\program exiting gracefully")
+    sys.exit(0)
+signal.signal(signal.SIGINT, signal_handler)
+
 def input_arguments(): 
         
-    parser = argparse.ArgumentParser (description = 'Submit multiple templateMaker.py batches at once') 
+    parser = argparse.ArgumentParser (descrirition = 'Submit multiple templateMaker.py batches at once') 
     parser.add_argument('freq',             action='store',                     help='Sampling frequency of the data run (160 or 120 MHz)'          ) 
     parser.add_argument('temp',             action='store',                     help='Temperature of the data run (18 or 9 deg C)'                  ) 
     parser.add_argument('pos',              action='store',                     help='Position, probably C3up or C3down'                            ) 
     parser.add_argument('-e',               action='store', default='compiled', help='Energy of the data, probably you want "compiled"'             ) 
 
-    # Very poor form, my apologies...
-    # These arguments below are needed, but only for PlotterTools, and I don't want them cluttering up my code or confusing people.
-    # Do not touch these, do not use them, do not look for them in --help. Their existence even is hidden by argparse.SUPPRESS
-    # Forgive my shoddy worksmanship
-    parser.add_argument('-d'  ,    type=str,                                                     help=argparse.SUPPRESS)
-    parser.add_argument('-f'  ,    type=str,                                                     help=argparse.SUPPRESS)
+    print sys.argv
 
-    parser.add_argument('-x'  ,             action='store_true',                                 help=argparse.SUPPRESS)
-    parser.add_argument('-a'  ,             action='store_true',                                 help=argparse.SUPPRESS)
-    parser.add_argument('-r'  ,             action='store_true',                                 help=argparse.SUPPRESS)
-    
-    parser.add_argument('-q'   ,            action='store_true',                                 help=argparse.SUPPRESS)
-    parser.add_argument('--fit',            action='store_true',                                 help=argparse.SUPPRESS)
-
-    parser.add_argument('--xb',             action='store',         default='100,-5,1000',       help=argparse.SUPPRESS)
-    parser.add_argument('--rb',             action='store',         default='20,0,1500,100,-2,2',help=argparse.SUPPRESS)
-    parser.add_argument('--ab',             action='store',         default='100,0,1500',        help=argparse.SUPPRESS)
-
-    parser.add_argument('--am', '--ampmax' ,action='store',         default='100',               help=argparse.SUPPRESS)
-    parser.add_argument('--da', '--dampl'  ,action='store',         default='5000',              help=argparse.SUPPRESS)
-    parser.add_argument('--pc', '--poscut' ,action='store',         default='3',                 help=argparse.SUPPRESS)
-    parser.add_argument('--lc', '--lincorr',action='store_true',    default=False,               help=argparse.SUPPRESS)
+    if len(sys.argv[1:])==0:                                                        # use 160/18/C3up as a default
+        sys.argv[1:] = ['160', '18', 'C3up']
 
     args = parser.parse_args()
 
@@ -67,91 +56,67 @@ def get_events(testfile, cut):
 
 ## Functions that just return cuts
 
-## Aligns the two X and Y hodoscope planes, such that X[0] = X[1]-dx_hodo_align
-def fiber_and_position(testfile, df, poscut, pt):
-
-    tfile  = TFile(testfile[0])
-    tree   = tfile.Get("h4")
-
-    hox   = TH1F("hox", '', 100,-20,20)      
-    hoy   = TH1F("hoy", '', 100,-20,20)
-    cutx = "nFibresOnX[0]==2 && nFibresOnX[1]==2"
-    cuty = "nFibresOnY[0]==2 && nFibresOnY[1]==2"
-
-    tree.Draw("X[0]-X[1]>>hox", TCut(cutx))
-    x_align = hox.GetMean()
-
-    tree.Draw("Y[0]-Y[1]>>hoy", TCut(cuty))
-    y_align = hoy.GetMean()
-    
-    if (x_align==0.0) or (y_align==0.0): sys.exit("Error! Hodoscope alignment failed!")
-
-    # We have 2 hodo planes we can use for X and Y. This cut picks the best one for position and nFibresOn
-    fiber_cut    = "fabs(nFibresOnX[{0}]-2)<={1} && fabs(nFibresOnY[{0}]-2)<={1}"                 # 2 hodoscope planes we can use, [0]. [1]
-    position_cut = "(fabs( (X[{0}]-{1}) - {2})<4) && (fabs( (Y[{0}]-{3}) -{4})<{5})"        # {0}=which plane
-                                                                                            # {1}=x_hodo_alignment
-                                                                                            # {2}=x_center
-                                                                                            # {3}=y_hodo_alignment
-                                                                                            # {4}=y_center
-                                                                                            # {5}=poscut
-    x_center, y_center = pt.find_center()
-    fiber_and_position  = '('+fiber_cut.format(0,df)+" && "+position_cut.format(0,0,x_center,0,y_center,poscut)+') || '
-    fiber_and_position += '('+fiber_cut.format(1,df)+" && "+position_cut.format(1,x_align,x_center,y_align,y_center,poscut)+')'
+def fiber_and_position(testfile, df, y_pos_cut, rit):
+    dfibers = 1                                                                             # nfibers +- from 2 to accept. IE df = 1 -> 1-3 fibersOn 
+    fiber_cut_tmp = "fabs(nFibresOnX[{0}]-2)<={1} && fabs(nFibresOnY[{0}]-2)<={1}"
+    fiber_cut = "("+fiber_cut_tmp.format(0,dfibers)+' || '+fiber_cut_tmp.format(1,dfibers)+")"
+    x_pos_cut = 4                                                                           # 1/2 the x-sidelength of the position cut (in mm)
+    x_center, y_center = rit.find_target_center()
+    position_cut = "(fabs( X-{0} )<{1}) && (fabs( Y-{2} )<{3})".format(x_center, x_pos_cut, y_center, y_pos_cut)
     return fiber_and_position
-def fiber(df):  # df is how many fibers it can differ from 2. IE fiiber(0)
+def fiber(df):  # df is how many fibers it can differ from 2. 
     return " fabs(nFibresOnX[0]-2)<={0} && fabs(nFibresOnY[0]-2)<={0} ".format(df)
-def clock(pt):
-    xtal = pt.get_xtals()
+def clock(rit):
+    xtal = rit.get_xtals()
     return " time_maximum[{}]==time_maximum[{}] ".format(xtal[0],xtal[1])
-def position(poscut, pt):
-    x_center, y_center = pt.find_center()
+def position(poscut, rit):
+    x_center, y_center = rit.find_target_center()
     return " (fabs(X[0]-{:.4f})<4) && (fabs(Y[0]-{:.4f})<{}) ".format(float(x_center), float(y_center), poscut)
-def amp(ampmax, pt):
-    xtal = pt.get_xtals()
-    ampbias = pt.amp_coeff()
+def amp(ampmax, rit):
+    xtal = rit.get_xtals()
+    ampbias = rit.amp_calibration_coeff()
     return " amp_max[{}]>{} && {:.4f}*amp_max[{}]>{} ".format(xtal[0],ampmax,float(ampbias),xtal[1],ampmax)
-def dampl(dampcut, pt):
-    xtal = pt.get_xtals()
-    ampbias = pt.amp_coeff()
+def dampl(dampcut, rit):
+    xtal = rit.get_xtals()
+    ampbias = rit.amp_calibration_coeff()
     return " fabs(fit_ampl[{}]-{:.4f}*fit_ampl[{}] )<{} ".format(xtal[0], float(ampbias), xtal[1], dampcut)
 
 def main():
 
+    print 'IM ALIVE'
     gROOT.ProcessLine("gErrorIgnoreLevel = kError;")    # Surpress info messages below Error or Fatal levels (IE info or warning)
     gROOT.SetBatch(kTRUE)                               # Don't actually display the canvases from .Draw(...)
 
     args = input_arguments()
-    
 
-
-    ft       = FilesTools(args)
+    ft       = FileTools.FileTools(args)
     savepath = ft.output_location()
     path     = '/eos/user/m/mplesser/timing_resolution/batch_ntuples/ECAL_H4_June2018_'+args.freq+'_'+args.temp+'_EScan_edges/compiled_roots/'
     testfile = [path+'ECAL_H4_June2018_'+args.freq+'_'+args.temp+'_'+args.e+'_'+args.pos+'.root', args.e+'_'+args.pos]
-    pt       = PlotterTools(args, savepath, testfile)
+    rit      = RunInfoTools.RunInfoTools(args, savepath, testfile)
     
     # Custom cuts used in CutBatchAnalysis.py
     # Note: no linear correction because that isn't actually a cut!
     aand = " && "
-    baseline = fiber(1)+aand+clock(pt)+aand+position(3,pt)+aand+amp(100,pt)+aand+dampl(5000,pt)
-    BaseAdv  = fiber_and_position(testfile,1,3,pt)+aand+clock(pt)+aand+amp(100,pt)+aand+dampl(5000,pt)
-    da       = fiber(1)+aand+clock(pt)+aand+position(3,pt)+aand+amp(100,pt)+aand+dampl(1000,pt)
-    pc       = fiber(1)+aand+clock(pt)+aand+position(1,pt)+aand+amp(100,pt)+aand+dampl(5000,pt)
-    da_pc    = fiber(1)+aand+clock(pt)+aand+position(1,pt)+aand+amp(100,pt)+aand+dampl(1000,pt)
-    da_pc_Adv= fiber_and_position(testfile,1,1,pt)+aand+clock(pt)+aand+amp(100,pt)+aand+dampl(1000,pt)
+    baseline = fiber(1)+aand+clock(rit)+aand+position(3,rit)+aand+amp(100,rit)+aand+dampl(5000,rit)
+    BaseAdv  = fiber_and_position(testfile,1,3,rit)+aand+clock(rit)+aand+amp(100,rit)+aand+dampl(5000,rit)
+    da       = fiber(1)+aand+clock(rit)+aand+position(3,rit)+aand+amp(100,rit)+aand+dampl(1000,rit)
+    pc       = fiber(1)+aand+clock(rit)+aand+position(1,rit)+aand+amp(100,rit)+aand+dampl(5000,rit)
+    da_pc    = fiber(1)+aand+clock(rit)+aand+position(1,rit)+aand+amp(100,rit)+aand+dampl(1000,rit)
+    da_pc_Adv= fiber_and_position(testfile,1,1,rit)+aand+clock(rit)+aand+amp(100,rit)+aand+dampl(1000,rit)
 
     # Cuts to check, no cut (1==1), individual cuts at differing severity levels, and finally the custom cuts
     cuts = ["1==1",\
             fiber(0),\
             fiber(1),\
-            clock(pt),\
-            position(3,pt),\
-            position(1,pt),\
-            fiber(1)+aand+position(3,pt),\
-            fiber_and_position(testfile,1,3,pt),\
-            amp(100,pt),\
-            dampl(5000,pt),\
-            dampl(1000,pt),\
+            clock(rit),\
+            position(3,rit),\
+            position(1,rit),\
+            fiber(1)+aand+position(3,rit),\
+            fiber_and_position(testfile,1,3,rit),\
+            amp(100,rit),\
+            dampl(5000,rit),\
+            dampl(1000,rit),\
             baseline,\
             BaseAdv,\
             da,\
