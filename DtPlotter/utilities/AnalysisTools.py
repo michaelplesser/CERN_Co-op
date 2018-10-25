@@ -21,10 +21,9 @@ class AnalysisTools:
         self.ft  = FileTools.FileTools(args)
 
         rit = RunInfoTools.RunInfoTools(args, savepath, filei)
-        rit.start_log_file()
         self.ampbias                 = rit.ampbias
         self.xtal                    = rit.xtal
-        self.x_center, self.y_center = rit.x_center, rit.y_center
+        self.x_center, self.y_center = rit.find_target_center()
         self.Aeff                    = rit.Aeff
 
     ## When we assign a y-value (resolution) to a bin, by default it is assigned to the mid-point as an x-value (Aeff).
@@ -33,8 +32,6 @@ class AnalysisTools:
 
         t_file    = TFile(self.file)
         t_tree    = t_file.Get("h4")
-
-#        return TGraphAsymmErrors(h)
 
         n_bins    = h.GetN()
         xs        = []
@@ -60,6 +57,15 @@ class AnalysisTools:
     ## Adjust dT using a linear fit, to correct "mean walking" location effects in the deposition
     def dt_linear_correction(self, tree, cut):
 
+        ## As in RunInfoTools.py, which axis we do the linear fit against and which center to use depends on run (up/down vs left/right)
+        ## This tells you which to use
+        ## Note: in the future, perhaps move from fitting against X/Y to R? Will still need to pick which center though.
+        def lin_fit_run_info():
+            if (self.xtal[2] == 'C3down') or (self.xtal[2] == 'C3up'):
+                return self.y_center, 'Y'
+            elif (self.xtal[2] == 'C3left') or (self.xtal[2] == 'C3right'):
+                return self.x_center, 'X'
+
         ## Checks to see if any points shouldn't be trusted based on a large residual, and returns TGraph without those points
         ## Helps the linear correction remain accurate when one or more fits from fit_y_slices fails
         def remove_outliers(gr):                                                   # gr input is a TGraphAsymmErrors TObject
@@ -71,8 +77,8 @@ class AnalysisTools:
             n_points  = gr.GetN()
             median    = np.median([gr.GetY()[i] for i in range(n_points)])
             for i in range(n_points):
-                if abs(gr.GetY()[i] - median) < 0.5:                               # Only accept points who have a residual between resolution fit means and the median <150ps
-                    x.append(gr.GetX()[i])                                          # Add all the usual points needed for a TGraphAsymmError constructor, etcetc
+                if abs(gr.GetY()[i] - median) < 0.5:                               # Only accept points who have a residual between resolution fit means and the median <500ps
+                    x.append(gr.GetX()[i])                                         # Add all the usual points needed for a TGraphAsymmError constructor, etcetc
                     y.append(gr.GetY()[i])
                     xerr_low.append(gr.GetEXlow()[i])
                     xerr_high.append(gr.GetEXhigh()[i])
@@ -83,19 +89,20 @@ class AnalysisTools:
         
         ## See in RunInfoTools.py, but there is a known non-linear dip around the center. This fn creates a fit_line that ignores points around the center.
         def pol1_ignore_center(x,par):
-            if (x[0] < (float(self.y_center) + 1.5)) and (x[0] > (float(self.y_center) - 1.5)):
+            if (x[0] < (lin_fit_center + 1.5)) and (x[0] > (lin_fit_center - 1.5)):
                 TF1.RejectPoint()
                 return 0
             return par[0] + par[1]*x[0]
-        
+
+        lin_fit_center, axis = lin_fit_run_info()                                                          # Initialize the info about which axis to use
         ## Draw the plot and fit y slices to fit linearly
-        nbins = 60
-        fit_lbound = float(self.y_center) - 4.0
-        fit_ubound = float(self.y_center) + 4.0
+        nbins = 30
+        fit_lbound = lin_fit_center - 4.0
+        fit_ubound = lin_fit_center + 4.0
         hadjust    = TH2F('hadjust', '', nbins, fit_lbound, fit_ubound, 100, -2, 2)
         dt         = "fit_time[{}]-fit_time[{}]".format(self.xtal[0],self.xtal[1])
-        tree.Draw(dt+":Y>>hadjust", TCut(cut), "COLZ")
-        hadjust_1  = self.fit_y_slices(hadjust)[0]                                  # Mean of the dt distribution plotted against Y[0]
+        tree.Draw("{0}:{1}>>hadjust".format(dt, axis), TCut(cut), "COLZ")
+        hadjust_1  = self.fit_y_slices(hadjust)[0]                                  # Mean of the dt distribution plotted against the position coordinate
         hadjust_1  = remove_outliers(hadjust_1)
         self.ft.save_files(hadjust_1, self.savepath,"{}_{}_".format(self.energy,self.xtal[2]),"dt_adjustment") # Saving post-fit causes a seg fault in terminal mode ROOT
 
@@ -128,7 +135,7 @@ class AnalysisTools:
                 red_chi2 = 'N/A'
              
             if (refit_counter == max_n_refits) and (abs(slope) > 0.1):
-                print "Dt adjustment linear fit failed. Dt vs Y slope set to 0"
+                print "Dt adjustment linear fit failed. Slope set to 0"
                 slope = 0
             refit_counter += 1
 
@@ -136,19 +143,20 @@ class AnalysisTools:
         p1 = TF1("p1", "pol1", fit_lbound, fit_ubound)
         p1.FixParameter(0, dt0)                                                                                         # Fix the parameters. You aren't even fitting, just 
         p1.FixParameter(1, slope)                                                                                       # a way to draw the fit and plot together so they save easilly
+        hadjust_1.Draw()
         hadjust_1.Fit("p1","QBR")
         self.ft.save_files(hadjust_1, self.savepath,"{}_{}_".format(self.energy,self.xtal[2]),"dt_adjustment_fitted")   # Post-fit plots DO show correctly on EOS-webpage, so save pre- and post-fit 
-        print 'Dt adjustment parameters: slope = {:.7f}, y-intercept = {:.3f}, reduced chi2: {}'.format(slope, dt0, red_chi2)
+        print 'Dt adjustment parameters: slope = {:.7f}, dt-intercept = {:.3f}, reduced chi2: {}'.format(slope, dt0, red_chi2)
         
         ## Some info for the log file       
         with open(self.savepath+self.xtal[2]+'_log.txt', 'a') as f:
             f.write("\nDt adjustment parameters:\n")
             f.write("\tSlope:       \t\t {}\n".format(slope))
-            f.write("\tY-intercept: \t\t {}\n".format(dt0))
+            f.write("\tdt-intercept:\t\t {}\n".format(dt0))
             f.write("\tReduced chi2:\t\t {}\n".format(red_chi2))
 
-        ## Add a linear correction to dt: dt --> dt-(dampl*slope)
-        adjusted_plot = "( ({0}) - ( {1} * (Y[0]-{2}) ) ):{3}".format(dt,slope,self.y_center,self.Aeff)
+        ## Add a linear correction to dt: dt --> dt-(dx*slope)
+        adjusted_plot = "( ({0}) - ( {1} * ({2}-{3}) ) ):{4}".format(dt,slope,axis,lin_fit_center,self.Aeff)
         return adjusted_plot
 
 
@@ -223,28 +231,26 @@ class AnalysisTools:
             f.write("\tReduced  fit chi2:   \t{}       \n".format(red_chi2))
 
     ## Advanced version of FitSlicesY(). Uses a double sided crystal ball fit
-    def fit_y_slices(self, h):
+    def fit_y_slices(self, h, fit_type='gaus'):
 
         ## Double sided crystal ball function
         def double_xtal_ball(x,par):
             f1 = TF1('f1','crystalball')
             f2 = TF1('f2','crystalball')
-            f1.SetParameters(par[0]/2, par[1], par[2],    par[3], par[4])             # The trick is to share all variables and change  
-            f2.SetParameters(par[0]/2, par[1], par[2], -1*par[3], par[4])          # 'A's sign, which determines the side of the tail
+            f1.SetParameters(par[0]/2, par[1], par[2],    par[3], par[4])       # The trick is to share all variables and change  
+            f2.SetParameters(par[0]/2, par[1], par[2], -1*par[3], par[4])       # 'A's sign, which determines the side of the tail
             return f1(x[0]) + f2(x[0])
 
         double_xtal_ball = TF1("double_xtal_ball", double_xtal_ball, -2, 2, 5)  # -2 to 2 is my fit range
         double_xtal_ball.SetParNames("c","mu","sig","A","n")              
         
         ## Set par. limits to help the minimizer converge
-        ## Perhaps overkill, but at least set A1 and A2 to have different signs, one for each tail!!!
-        ## Example values, tune based on your specific usage case. Not all limits may be necessary for you
-        double_xtal_ball.SetParLimits(0 , 0 ,99999)                               # c >= 0
-        double_xtal_ball.SetParLimits(1 ,-1 ,1    )                               # mu between -2 and 2
-        double_xtal_ball.SetParLimits(2 , 0.01,0.2)                               # sigma between 0 and 200ps
-        double_xtal_ball.SetParLimits(3 , 0 ,99   )                               # A1 >= 0
-        double_xtal_ball.SetParLimits(4 , 0 ,10   )                               # A2 <= 0
-        double_xtal_ball.SetParameters(100, 0.3, 0.05, 1, 1)                  # Some guesses to help things along 
+        double_xtal_ball.SetParLimits(0 , 0 ,99999)                             # c >= 0
+        double_xtal_ball.SetParLimits(1 ,-1   ,1  )                             # mu between -1 and 1
+        double_xtal_ball.SetParLimits(2 , 0.01,0.2)                             # sigma between 10 and 200ps
+        double_xtal_ball.SetParLimits(3 , 0   ,99 )                             # A1 >= 0
+        double_xtal_ball.SetParLimits(4 , 0   ,99 )                             # n  <= 0
+        double_xtal_ball.SetParameters(100, 0.3, 0.05, 1, 1)                    # Some guesses to help things along 
 
         print
         bins     = []
@@ -253,30 +259,30 @@ class AnalysisTools:
         n_bins   = h.GetXaxis().GetNbins()
         for bini in range(1, n_bins):
 
-            h_p = h.ProjectionY('h_p',bini,bini) # Get the distribution in y as  TH1 for bin# 'bini'
+            h_p = h.ProjectionY('h_p',bini,bini)                                # Get the distribution in y as  TH1 for bin# 'bini'
              
             refit_counter = 0
-            max_n_refits  = 25
-            min_n_events  = 20
-            n_entries = int(h_p.GetEntries())
-
-            fit_type = "gaus"
 
             if fit_type == "double_xtal_ball":
+
+                max_n_refits  = 5
+                min_n_events  = 50
+                n_entries = int(h_p.GetEntries())
                 if (n_entries > min_n_events): 
-                    fit = h_p.Fit("double_xtal_ball", "QBRMWE")                 # Try the fit again
-                    status = gMinuit.fCstatu    # Get the fit status, IE 'OK', 'CONVERGED', 'FAILED'
-                    while (not 'OK' in status) and (not 'CONVERGED' in status) and (not 'LIMIT_REACHED' in status): # These are the good ones :(
+                
+                    fit = h_p.Fit("double_xtal_ball", "QBRM")                   # Try the fit again
+                    status = gMinuit.fCstatu                                    # Get the fit status, IE 'OK', 'CONVERGED', 'FAILED'
+                    while (not 'OK' in status) and (not 'CONVERGED' in status) and (not 'LIMIT_REACHED' in status):
 
                         print 'Fit failed for slice number {} with {} entries. Attempting refit {}/{}'.format(bini, n_entries, refit_counter+1, max_n_refits)
                         tr = TRandom()
                         tr.SetSeed(0)
-                        double_xtal_ball.SetParameter(0, tr.Uniform(  0, 999 ))  # Reset the parameters 
+                        double_xtal_ball.SetParameter(0, tr.Uniform(  0, 9999)) # Reset the parameters 
                         double_xtal_ball.SetParameter(1, tr.Uniform( -1, 1   ))
                         double_xtal_ball.SetParameter(2, tr.Uniform(  0, 0.2 ))
                         double_xtal_ball.SetParameter(3, tr.Uniform(  0, 5   ))
-                        fit = h_p.Fit("double_xtal_ball", "QBRMWE")                 # Try the fit again
-                        status = gMinuit.fCstatu                                 # Get the fit status
+                        fit = h_p.Fit("double_xtal_ball", "QBRMWE")             # Try the fit again
+                        status = gMinuit.fCstatu                                # Get the fit status
                         refit_counter += 1
 
                         if ('OK' in status) or ('CONVERGED' in status):
@@ -300,17 +306,19 @@ class AnalysisTools:
                         bins.append( [lowedge, highedge, center] )
                         hh_1_tmp.append([mean, mean_err])
                         hh_2_tmp.append([res, res_err])
-
+                   
             if fit_type == "gaus":
+                max_n_refits  = 50
+                min_n_events  = 50
+                n_entries = int(h_p.GetEntries())
                 if (n_entries > min_n_events): 
                     gauss = TF1("gauss", "gaus")
                     fit = h_p.Fit(gauss, "QM")
-                    status = gMinuit.fCstatu    # Get the fit status, IE 'OK', 'CONVERGED', 'FAILED'
-                    while (not 'OK' in status) and (not 'CONVERGED' in status) and (not 'LIMIT_REACHED' in status): # These are the good ones :(
-
+                    status = gMinuit.fCstatu                                    # Get the fit status, IE 'OK', 'CONVERGED', 'FAILED'
+                    while (not 'OK' in status) and (not 'CONVERGED' in status) and (not 'LIMIT_REACHED' in status):
                         print 'Fit failed for slice number {} with {} entries. Attempting refit {}/{}'.format(bini, n_entries, refit_counter+1, max_n_refits)
-                        fit = h_p.Fit(gauss, "QM")                 # Try the fit again
-                        status = gMinuit.fCstatu                                 # Get the fit status
+                        fit = h_p.Fit(gauss, "QM")                              # Try the fit again
+                        status = gMinuit.fCstatu                                # Get the fit status
                         refit_counter += 1
 
                         if ('OK' in status) or ('CONVERGED' in status):
@@ -320,8 +328,8 @@ class AnalysisTools:
                             status = 'LIMIT_REACHED'
 
                     if refit_counter != max_n_refits:
-                        chi2 = gauss.GetChisquare()/gauss.GetNDF()
 
+                        chi2 = gauss.GetChisquare()/gauss.GetNDF()
                         mean = gauss.GetParameter(1)
                         res  = gauss.GetParameter(2)
                         mean_err = chi2*gauss.GetParError(1)

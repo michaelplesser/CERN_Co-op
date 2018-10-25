@@ -19,7 +19,7 @@ class FileTools:
         root_savefile = TFile(path + file_title + name_tag + ".root", "recreate")
         root_savefile.cd()              
         h.Write()
-        print  "Saved file:", path + file_title + name_tag + '.root'
+        #print  "Saved file:", path + file_title + name_tag + '.root'
 
     ## Output location for plots
     def output_location(self):
@@ -34,7 +34,6 @@ class FileTools:
         def e_and_p(filei):                                                                             # Returns the energy and position of a file from it's name
             return filei.split('_')[-2]+'_'+filei.split('_')[-1].split('.')[0]                          # Assumes the filename of form '<blablabla>_e_p.root'
 
-        print
         Files = []                                                                                      # Format: [ ["name", "<energy>_<position>"], ...]
         
         if self.args.f is not None:                                                                     # File specified

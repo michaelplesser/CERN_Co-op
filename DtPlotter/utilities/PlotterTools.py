@@ -7,7 +7,6 @@ import signal
 import RunInfoTools
 from ROOT import TFile, TH1F, TH2F, TF1, TCut
 from array import array
-from math   import floor, ceil
 
 ## Makes for clean exits out of while loops
 def signal_handler(signal, frame):
@@ -29,18 +28,22 @@ class PlotterTools:
         ## Giving args shorter/more informative names
         self.args    = args
 
-        self.ampmax     = self.args.am
-        self.dampcut    = self.args.da
-        self.y_pos_cut  = self.args.pc
+        self.min_amp_max = self.args.am
+        self.dampcut     = self.args.da
+        self.x_pos_cut   = floar(self.args.pc.split(',')[0])
+        self.y_pos_cut   = floar(self.args.pc.split(',')[1])
 
         rit = RunInfoTools.RunInfoTools(args, savepath, filei)
         self.ampbias                 = rit.ampbias
         self.xtal                    = rit.xtal
-        self.x_center, self.y_center = rit.x_center, rit.y_center
+        self.x_center, self.y_center = rit.find_target_center()
         self.Aeff                    = rit.Aeff
 
     ## Cuts to selection
     def define_cuts(self):
+
+        tfile  = TFile(self.file)
+        tree   = tfile.Get("h4")
 
         ## Sweep to find the chi2 range [1/val,val] that gives 95% acceptance when used as a cut
         def chi2_range_sweep():
@@ -51,29 +54,28 @@ class PlotterTools:
                 elif percentage<0.95+window:                                    direction =  1  # Increase chi_val
                 return direction 
 
-            print
-            tfile  = TFile(self.file)
-            tree   = tfile.Get("h4")
-            h_chi  = TH2F("h_chi","",100,-20,20,100,-20,20) # We'll draw the hodoscope position as some arbitrary TH2F to use.
-            tree.Draw("Y[0]:X[0]>>h_chi")                   # It doesn't matter what TH2F we draw, we only care about the cut efficiency
-            tot_events = h_chi.GetEntries()
             chi_vals   = [0,0]                              # One range for xtal[0], and one for xtal[1]
             for i in range(len(chi_vals)):
                 print "Beginning chi2 sweep for {}".format(self.xtal[i])
-                stepsize           = 16                                                         # By how much chi_val is changed each time
-                chi_val            = 50                                                         # A guess to start
+                h_chi  = TH1F("h_chi","",1000,0,1000)                                           
+                basic_cut = "fit_chi2[{}]>0.001 && fabs(Y)<20 && fabs(X)<20".format(self.xtal[i])
+                tree.Draw("fit_chi2[{}]>>h_chi".format(self.xtal[i]), TCut(basic_cut))         
+                tot_events = h_chi.GetEntries()
+                stepsize           = 64                                                         # By how much chi_val is changed each time
+                chi_val            = 1                                                          # A guess to start
                 percent_plus_minus = 0.005                                                      # What is the acceptable range of percent's around 0.95, IE 0.01->0.94-0.96
                 direction          = 1                                                          # Start by increasing chi_val
                 lastdirection      = direction                                                  # Memory for checking if the direction has changed
                 while direction != 0:                                                           # Keep searching until 'direction'==0
                     chi_val += (direction * stepsize)                                           # Adjust the chi_val in the right direction, by the current stepsize
-                    chi_cut  = "fit_chi2[{0}]>1./{1} && fit_chi2[{0}]<{1}".format(self.xtal[i],chi_val)
-                    tree.Draw("Y[0]:X[0]>>h_chi", TCut(chi_cut))
+                    chi_cut  = "fit_chi2[{0}]>1./{1} && fit_chi2[{0}]<{1} && {2}".format(self.xtal[i],chi_val, basic_cut)
+                    tree.Draw("fit_chi2[{}]>>h_chi".format(self.xtal[i]), TCut(chi_cut))
                     percent_accept  = 1.*h_chi.GetEntries()/tot_events
                     lastdirection   = direction
 
                     direction       = check_range(percent_plus_minus, percent_accept)           # Update direction. +1, -1, or 0 if complete
                     if direction   != lastdirection:  stepsize /= 2.                            # Reduce step size if we overshoot it and changed direction
+
                 chi_vals[i] = chi_val
                 print "Range found for {}:\n\t{:.4f} - {} with {:.2f}% acceptance".format(self.xtal[i], 1./chi_val, chi_val, percent_accept*100.)
             return [ [1./chi_vals[0], chi_vals[0]], [1./chi_vals[1], chi_vals[1]] ]
@@ -84,12 +86,16 @@ class PlotterTools:
         fiber_cut_tmp = "fabs(nFibresOnX[{0}]-2)<={1} && fabs(nFibresOnY[{0}]-2)<={1}"
         fiber_cut = "("+fiber_cut_tmp.format(0,dfibers)+' || '+fiber_cut_tmp.format(1,dfibers)+")"
 
-        x_pos_cut = 4                                                                           # 1/2 the x-sidelength of the position cut (in mm)
-        #position_cut = "(fabs( X-{0} )<{1}) && (fabs( Y-{2} )<{3})".format(self.x_center, x_pos_cut, self.y_center, self.y_pos_cut)
-        position_cut = "(fabs( X-{0} )<{1}) && (Y>({2}+1) || Y<({2}-1)) && Y<20".format(self.x_center, x_pos_cut, self.y_center)
+        ## Loose cut, fabs(X) and fabs(Y)<20, but also cut 1mm around the center in the interesting direction
+        ## Not ideal, but eliminates the knee in the res. plot from gap electrons
+        #if (self.xtal[2] == 'C3down') or (self.xtal[2] == 'C3up'):
+        #    position_cut = "(fabs( X-{0} )<{1}) && (Y>({2}+1) || Y<({2}-1)) && Y<20".format(self.x_center, self.x_pos_cut, self.y_center)
+        #elif (self.xtal[2] == 'C3left') or (self.xtal[2] == 'C3right'):
+        #    position_cut = "(fabs( Y-{0} )<{1}) && (X>({2}+1) || X<({2}-1)) && X<20".format(self.y_center, self.y_pos_cut, self.x_center)
+        position_cut = "(fabs( X-{0} )<{1}) && (fabs( Y-{2} )<{3})".format(self.x_center, self.x_pos_cut, self.y_center, self.y_pos_cut)
         
         clock_cut    = "time_maximum[{}]==time_maximum[{}]".format(self.xtal[0],self.xtal[1])
-        amp_cut      = "amp_max[{}]>{} && {}*amp_max[{}]>{}".format(self.xtal[0],str(self.ampmax),self.ampbias,self.xtal[1],str(self.ampmax))
+        amp_cut      = "amp_max[{}]>{} && {}*amp_max[{}]>{}".format(self.xtal[0],self.min_amp_max,self.ampbias,self.xtal[1],self.min_amp_max)
         dampl_cut    = "fabs(fit_ampl[{}]-{}*fit_ampl[{}] )<{}".format(self.xtal[0], self.ampbias, self.xtal[1], self.dampcut)
 
         chi2_bounds  = chi2_range_sweep()
@@ -99,8 +105,8 @@ class PlotterTools:
         Cts = []
         ## Chi2 cuts
         if self.args.x is not False:              
-            Cts.append( fiber_cut + " && " + position_cut + " && " + clock_cut )
-            Cts.append( fiber_cut + " && " + position_cut + " && " + clock_cut )
+            Cts.append( fiber_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut )
+            Cts.append( fiber_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut )
 
         ## Aeff cuts
         if self.args.a is not False: 
@@ -129,8 +135,8 @@ class PlotterTools:
         if self.args.x is not False:
             chi2bins   = self.args.xb.split(',')
             bins       = [ int(chi2bins[0]), int(chi2bins[1]), int(chi2bins[2]) ]
-            Plts.append(["fit_chi2["+self.xtal[0]+"]", "Fit_Chi2_"+self.xtal[0], bins[0], bins[1], bins[2]])
-            Plts.append(["fit_chi2["+self.xtal[1]+"]", "Fit_Chi2_"+self.xtal[1], bins[0], bins[1], bins[2]])
+            Plts.append(["fit_chi2[{}]".format(self.xtal[0]), "Fit_Chi2_"+self.xtal[0], bins[0], bins[1], bins[2]])
+            Plts.append(["fit_chi2[{}]".format(self.xtal[1]), "Fit_Chi2_"+self.xtal[1], bins[0], bins[1], bins[2]])
 
         if self.args.a is not False: 
             abins   = self.args.ab.split(',')
@@ -140,7 +146,8 @@ class PlotterTools:
         if self.args.r is not False:
             resbins   = self.args.rb.split(',')
             bins      = [ int(resbins[0]), int(resbins[1]), int(resbins[2]), int(resbins[3]), int(resbins[4]), int(resbins[5]) ]
-            Plts.append(["fit_time[{}]-fit_time[{}]:{}".format(self.xtal[0],self.xtal[1],self.Aeff), "resolution_vs_aeff", bins[0], bins[1], bins[2], bins[3], bins[4], bins[5]])
+            var       = "fit_time[{}]-fit_time[{}]:{}".format(self.xtal[0],self.xtal[1],self.Aeff)
+            Plts.append([var, "resolution_vs_aeff", bins[0], bins[1], bins[2], bins[3], bins[4], bins[5]])
 
         return Plts
 
@@ -148,7 +155,7 @@ class PlotterTools:
     ## Make the dt vs aeff color map, and use quantiles if so directed
     def make_color_map(self, p, cut, tree):
 
-        def quant_in_range(nbins_quant, lb, ub):
+        def quants_in_range(nbins_quant, lb, ub):
             aeff_tmp       = TH1F('aeff',"", 100, lb, ub)                                                       # Creates a temporary histogram to find the quantiles
             tree.Draw(self.Aeff+'>>aeff', TCut(cut))
             probs     = array('d', [x/(nbins_quant-1.) for x in range(0, nbins_quant)])                         # Quantile proportions array
@@ -156,20 +163,19 @@ class PlotterTools:
             aeff_tmp.GetQuantiles(nbins_quant, quantiles, probs)                                                # Overwrites 'quantiles' with bin edges positions
             return quantiles
 
+        def fixed_bins_in_range(nbins, lb, ub):
+            fixed_bin_size  = (ub - lb)/(nbins+1)              
+            return array('d', [lb+fixed_bin_size*n for n in range(1, nbins+1)])
+
         if self.args.q == True:                                                                                 # Use quantile binning
             ## Hybrid quantile method. Uses quantiles in low and high Aeff regions, and fixed bins between.
-            n_lower_quants = int(p[2]/2)+1                                                                      # Number of quantiles in low Aeff region
+            n_lower_quants  = int(p[2]/2)+1                                                                     # Number of quantiles in low Aeff region
             lower_quants_ub = 400                                                                               # Upper bound of lower quantile region (lb taken from p[3])
-            lower_quants   = quant_in_range(n_lower_quants,p[3],lower_quants_ub )
-#            n_upper_quants = p[2]-n_lower_quants+1                                                              # Number of quantiles in high Aeff region 
-#            upper_quants_lb = 200                                                                               # Lower bound of upper quantile region (ub taken from p[4])
-#            upper_quants   = quant_in_range(n_upper_quants,upper_quants_lb ,p[4])
-            nfixed_bins    = p[2] - n_lower_quants + 2                                            # n_fixed_bins = whatever is left (done this way to avoid rounding issues)
-            fixed_bin_size = (p[4] - lower_quants_ub)/nfixed_bins              
-            fixed_bins =  array('d', [lower_quants_ub+fixed_bin_size*n for n in range(1, nfixed_bins)])
-            bins = lower_quants + fixed_bins      # Fixed width bins up to aeff_min_quant, then uses quantiles
-#            bins = lower_quants + upper_quants     # Fixed width bins up to aeff_min_quant, then uses quantiles
-            hh   = TH2F('hh', self.file_title+'_dt_vs_aeff_heatmap', p[2], bins, p[5], p[6], p[7])              # Return a TH2F with quantile binning
+            lower_quants    = quants_in_range(n_lower_quants,p[3],lower_quants_ub )
+            nfixed_bins     = p[2] - n_lower_quants + 1                                                         # n_fixed_bins = whatever is left (done this way to avoid rounding issues)
+            fixed_bins      = fixed_bins_in_range(nfixed_bins, lower_quants_ub, p[4])              
+            bins = lower_quants + fixed_bins                                                                    # Mix of quantiles and fixed width bins.
+            hh   = TH2F('hh', self.file_title+'_dt_vs_aeff_heatmap', p[2], bins, p[5], p[6], p[7])              # Return a TH2F with mixed quantile/fixed binning
         else:                                                                                                   # Use fixed width bins
             hh   = TH2F('hh', self.file_title+'_dt_vs_aeff_heatmap', p[2], p[3], p[4], p[5], p[6], p[7])        # Return a TH2F with fixed-width binning    
 

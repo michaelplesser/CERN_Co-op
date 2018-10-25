@@ -17,7 +17,6 @@ class RunInfoTools:
 
         self.xtal                    = self.get_xtals()
         self.ampbias                 = self.amp_calibration_coeff()
-        self.x_center, self.y_center = self.find_target_center()
 
         ## Define Aeff since it is used in many places
         self.Aeff    = "pow( 2 / ( (1/pow(fit_ampl[{0}]/b_rms[{0}], 2)) + (1/pow({1}*fit_ampl[{2}]/b_rms[{2}],2)) ) , 0.5)".format(self.xtal[0],self.ampbias,self.xtal[1])     
@@ -27,7 +26,7 @@ class RunInfoTools:
         with open(self.savepath+self.xtal[2]+'_log.txt','w') as f:
             f.write(self.xtal[2]+" "+self.args.e+" energy log file\n\n")
 
-    ## Get crystal pair from Position (C3_down = ['C3', 'C2'], C3_up = ['C3', 'C4'])
+    ## Get crystal pair from Position
     def get_xtals(self):
         tfile    = TFile(self.file)
         infotree = tfile.Get("info")
@@ -47,8 +46,8 @@ class RunInfoTools:
             elif self.xtal[2]  == 'C3left' :  amp_calibration = 0.905111 
             elif self.xtal[2]  == 'C3right':  amp_calibration = 0.995219 
         elif self.args.temp ==  '9deg':
-            if   self.xtal[2]  == 'C3up'  :  amp_calibration = 0.926351
-            elif self.xtal[2]  == 'C3down':  amp_calibration = 0.849426
+            if   self.xtal[2]  == 'C3up'   :  amp_calibration = 0.926351
+            elif self.xtal[2]  == 'C3down' :  amp_calibration = 0.849426
             elif self.xtal[2]  == 'C3left' :  amp_calibration = 0.905111 
             elif self.xtal[2]  == 'C3right':  amp_calibration = 0.995219 
         return str(amp_calibration)
@@ -109,7 +108,8 @@ class RunInfoTools:
             fit_range = [hodo_center - 2.0, hodo_center + 2.0]
             hx    = TH2F("hx", "", 100, fit_range[0], fit_range[1], 100, 0, 10)               
             x_var = "fit_ampl[{0}]/({1}*fit_ampl[{2}]):{3}>>hy".format(self.xtal[0], self.ampbias, self.xtal[1], axis)  # amp1/(calibrate*amp2) vs (X or Y)
-            x_cut = "{0}*fit_ampl[{1}]>100".format(self.ampbias, self.xtal[1])                                          # Avoid /0 errors
+            basic_cut = "fabs(X)<20 && fabs(Y)<20 && fit_chi2[{}]>0 && fit_chi2[{}]>0".format(self.xtal[0], self.xtal[1])
+            x_cut = "{0}*fit_ampl[{1}]>100".format(self.ampbias, self.xtal[1]) + " && " + basic_cut                     # Avoid /0 errors
             t_tree.Draw(x_var, x_cut)                                                                                   # Draw the ratio of the two xtal's amplitudes against (X or Y) into 'hx'
             poly2 = TF1("poly2", "pol2", 3, 6)                                                                          # Fit the plot, pol2 works well, but is not physically justified
             poly2.SetParameters(5, -1, 0.1)                                                                             # Get the parameters in the right ballpark to start
@@ -117,25 +117,25 @@ class RunInfoTools:
             p         = poly2.GetParameters()                                                                           # Get the parameters from the fit
             solutions = [sol for sol in roots([p[2],p[1],p[0]-1]) if isreal(sol)]                                       # Find roots of the quadratic, and make sure they're real
                                                                                                                         # (p[0]-1 b/c we want to solve for where the pol2 == 1)
-
             sol_in_range = [s for s in solutions if (s>fit_range[0]) and (s<fit_range[1])]                              # Only take solutions in the defined fit_range
 
             ## There should only be 1 solution in the fit range. If there are 0 or >1, abort!
-            if   len(sol_in_range) == 2: sys.exit("Error!!! {}_center fitting gave two solutions in the range! Aborting... \n".format(axis))
-            elif len(sol_in_range) == 0: sys.exit("Error!!! {}_center fitting gave no  solutions in the range! Aborting... \n".format(axis))
-            else                       : axis_center = sol_in_range[0]
+            if len(sol_in_range) != 1: 
+                status = False
+                axis_center = 0
+            else: 
+                status = True
+                axis_center = sol_in_range[0]
 
-            return axis_center
+            return axis_center, status
        
         ## Find the center using the dip_residual_method, and if that answer is too far off, try the ratio_method, and if THAT doesn't work, abort.
         def find_and_check_center():
-            center = dip_residual_method()
-            if abs(center - hodo_center) > 3.:
-                ratio_center = ratio_method()
-                if abs(ratio_center - hodo_center) > 3.: 
-                    sys.exit("Neither center-finding algortihm succeeded. Aborting... \n")
-                else: 
-                    center = ratio_center
+            dip_center = dip_residual_method()
+            ratio_center, ratio_status = ratio_method()
+            if (ratio_status == True) and (abs(dip_center - ratio) > 1.0):
+                    sys.exit("Dip residual and amplitude ratio center-finding methods disagree. Aborting...")           # This needs improving, how to now which is the correct center??
+            center = dip_center
             return center
 
         ## Take the right x_center and y_center based on the run position
@@ -152,5 +152,4 @@ class RunInfoTools:
             f.write("\tX_center:\n\t\t {} \n  ".format(x_center))
             f.write("\tY_center:\n\t\t {} \n\n".format(y_center))
         
-        return str(x_center), str(y_center)
-
+        return x_center, y_center

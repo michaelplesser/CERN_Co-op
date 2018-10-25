@@ -9,6 +9,7 @@ import argparse
 from ROOT import *
 
 from utilities import FileTools
+from utilities import RunInfoTools
 from utilities import PlotterTools
 from utilities import AnalysisTools
 
@@ -17,6 +18,12 @@ def signal_handler(signal, frame):
     print("\program exiting gracefully")
     sys.exit(0)
 signal.signal(signal.SIGINT, signal_handler)
+
+## print a line of ###'s, aesethetic. Default to print 1 line
+def print_lines(nlines=1):
+    print '\n'
+    for i in range(nlines): print '#'*int(os.popen('stty size', 'r').read().split()[1]) 
+    print '\n'
 
 def input_arguments():
     parser = argparse.ArgumentParser(description='Control plotting and cuts for inter-crystal time resolution studies')
@@ -40,7 +47,7 @@ def input_arguments():
 
     parser.add_argument('--am', '--ampmax' ,action='store',         default='0',                 help='Amp_max lower bound, used for cuts ')
     parser.add_argument('--da', '--dampl'  ,action='store',         default='100000',            help='dampl cut, max allowed difference in fit_ampl between xtals')
-    parser.add_argument('--pc', '--poscut' ,action='store',         default='3',                 help='Position cut, side-length of a square around target center to accept')
+    parser.add_argument('--pc', '--poscut' ,action='store',         default='3,3',               help='Position cut, 1/2 side-length of a square around target center to accept')
     parser.add_argument('--lc', '--lincorr',action='store_true',    default=False,               help='Use a linear correction to counter the "walking mean" effect')
 
     args = parser.parse_args()
@@ -68,22 +75,33 @@ def main():
 
     args = input_arguments()
 
+    print_lines(2)
+
     ## Class for defining save path and finding analysis files. Also has "save_files" fn   
     ft        = FileTools.FileTools(args)                        
     savepath  = ft.output_location()
     Files     = ft.analysis_path()
     for f in Files:
-        print "\n","#"*int(os.popen('stty size', 'r').read().split()[1]) # print a line of ###'s, aesethetic
+
+        print_lines(2)
         print "File:", f[0]
-        
+        print_lines()        
+
+        rit   = RunInfoTools(args, savepath, f)
+        x_center, y_center = rit.find_target_center()
+        rit.start_log_file()
+
         at    = AnalysisTools(args, savepath, f)        # Class with tools for analysis. Mainly adjustments
         pt    = PlotterTools(args, savepath, f)         # Class with tools for plotting
         Cuts  = pt.define_cuts()                        # Get the cuts for the relevant plots, flagged in args
         Plots = pt.define_plots()                       # Get what plots are desired, flagged in args
     
         for i in xrange(len(Plots)):                    # For each plot of interest
-                
-                print "\n","#"*int(os.popen('stty size', 'r').read().split()[1]) # print a line of ###'s, aesethetic
+
+                print_lines()
+                print "X center: {0:.2f}".format(x_center)
+                print "Y center: {0:.2f}".format(y_center)
+                print_lines()
 
                 cut = Cuts[i]                           # Cuts for the current plot of interest
                 p   = Plots[i]                          # Plotting info, what to plot, what bounds, etcetc
@@ -114,6 +132,8 @@ def main():
                     
                     ## Use a linear adjustment to account for the "walking-mean" effect resulting from largely uneven Aeff's
                     if args.lc == True: p[0] = at.dt_linear_correction(tree,cut)
+                    
+                    print_lines()
 
                     # Create the color map
                     hh = pt.make_color_map(p,'',tree)
@@ -123,9 +143,10 @@ def main():
                     tree.Draw(p[0]+">>hh", TCut(cut), "COLZ")
                     nentries_postcut  = int(hh.GetEntries())    
 
-                    print
-                    print "Number of entries pre-cuts:", nentries_precut
-                    print "Number of entries post-cuts: {} \t {:5.2f}% efficiency ".format(nentries_postcut, 100.*nentries_postcut/nentries_precut)
+                    print "Number of entries pre-cuts:  {0}".format(nentries_precut)
+                    print "Number of entries post-cuts: {0}".format(nentries_postcut)
+                    print "Cut efficiency:              {0:.2f}%".format(100.*nentries_postcut/nentries_precut)
+
                     with open(savepath+f[1].split('_')[-1]+'_log.txt', 'a') as logfile:
                         logfile.write("\nNumber of entries ( hh.GetEntries() ):\n\tpre-cuts:\n")
                         logfile.write("\t\t" + str(nentries_precut)  + '\n')    
