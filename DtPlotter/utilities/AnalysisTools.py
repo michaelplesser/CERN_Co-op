@@ -11,19 +11,23 @@ from ROOT import *
 
 class AnalysisTools:
 
-    def __init__(self, args, savepath, filei):
+    def __init__(self, args, savepath, filei, centers):
         self.args   = args
         self.energy = self.args.e
         
         self.file     = filei[0]
         self.savepath = savepath
 
+        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/CfgManager/lib/libCFGMan.so")
+        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/lib/libH4Analysis.so")
+        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/DynamicTTree/lib/libDTT.so")
+
         self.ft  = FileTools.FileTools(args)
 
         rit = RunInfoTools.RunInfoTools(args, savepath, filei)
         self.ampbias                 = rit.ampbias
         self.xtal                    = rit.xtal
-        self.x_center, self.y_center = rit.find_target_center()
+        self.x_center, self.y_center = centers[0], centers[1] 
         self.Aeff                    = rit.Aeff
 
     ## When we assign a y-value (resolution) to a bin, by default it is assigned to the mid-point as an x-value (Aeff).
@@ -62,9 +66,9 @@ class AnalysisTools:
         ## Note: in the future, perhaps move from fitting against X/Y to R? Will still need to pick which center though.
         def lin_fit_run_info():
             if (self.xtal[2] == 'C3down') or (self.xtal[2] == 'C3up'):
-                return self.y_center, 'Y'
+                return self.y_center, 'fitResult[0].y()'
             elif (self.xtal[2] == 'C3left') or (self.xtal[2] == 'C3right'):
-                return self.x_center, 'X'
+                return self.x_center, 'fitResult[0].x()'
 
         ## Checks to see if any points shouldn't be trusted based on a large residual, and returns TGraph without those points
         ## Helps the linear correction remain accurate when one or more fits from fit_y_slices fails
@@ -102,6 +106,8 @@ class AnalysisTools:
         hadjust    = TH2F('hadjust', '', nbins, fit_lbound, fit_ubound, 100, -2, 2)
         dt         = "fit_time[{}]-fit_time[{}]".format(self.xtal[0],self.xtal[1])
         tree.Draw("{0}:{1}>>hadjust".format(dt, axis), TCut(cut), "COLZ")
+
+        print "Fitting y-slices..."
         hadjust_1  = self.fit_y_slices(hadjust)[0]                                  # Mean of the dt distribution plotted against the position coordinate
         hadjust_1  = remove_outliers(hadjust_1)
         self.ft.save_files(hadjust_1, self.savepath,"{}_{}_".format(self.energy,self.xtal[2]),"dt_adjustment") # Saving post-fit causes a seg fault in terminal mode ROOT
@@ -111,7 +117,6 @@ class AnalysisTools:
             print "Not enough points remaining for accurate linear fit. Dt vs Dampl slope set to 0"
             slope = 0
 
-        print
         refit_counter = 1
         max_n_refits  = 10
         poly1 = TF1("poly1", pol1_ignore_center, fit_lbound, fit_ubound, 2)                      
@@ -231,28 +236,8 @@ class AnalysisTools:
             f.write("\tReduced  fit chi2:   \t{}       \n".format(red_chi2))
 
     ## Advanced version of FitSlicesY(). Uses a double sided crystal ball fit
-    def fit_y_slices(self, h, fit_type='gaus'):
-
-        ## Double sided crystal ball function
-        def double_xtal_ball(x,par):
-            f1 = TF1('f1','crystalball')
-            f2 = TF1('f2','crystalball')
-            f1.SetParameters(par[0]/2, par[1], par[2],    par[3], par[4])       # The trick is to share all variables and change  
-            f2.SetParameters(par[0]/2, par[1], par[2], -1*par[3], par[4])       # 'A's sign, which determines the side of the tail
-            return f1(x[0]) + f2(x[0])
-
-        double_xtal_ball = TF1("double_xtal_ball", double_xtal_ball, -2, 2, 5)  # -2 to 2 is my fit range
-        double_xtal_ball.SetParNames("c","mu","sig","A","n")              
+    def fit_y_slices(self, h, fit_type="gaus"):
         
-        ## Set par. limits to help the minimizer converge
-        double_xtal_ball.SetParLimits(0 , 0 ,99999)                             # c >= 0
-        double_xtal_ball.SetParLimits(1 ,-1   ,1  )                             # mu between -1 and 1
-        double_xtal_ball.SetParLimits(2 , 0.01,0.2)                             # sigma between 10 and 200ps
-        double_xtal_ball.SetParLimits(3 , 0   ,99 )                             # A1 >= 0
-        double_xtal_ball.SetParLimits(4 , 0   ,99 )                             # n  <= 0
-        double_xtal_ball.SetParameters(100, 0.3, 0.05, 1, 1)                    # Some guesses to help things along 
-
-        print
         bins     = []
         hh_1_tmp = []
         hh_2_tmp = []
@@ -262,26 +247,37 @@ class AnalysisTools:
             h_p = h.ProjectionY('h_p',bini,bini)                                # Get the distribution in y as  TH1 for bin# 'bini'
              
             refit_counter = 0
+            if fit_type == "dcb":
 
-            if fit_type == "double_xtal_ball":
+                gROOT.ProcessLine(".x /afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/DtPlotter/utilities/Double_Crystal_Ball_Fit.C")
+                dcb = TF1("dcb", double_xtal_ball, -2, 2, 5)  # -2 to 2 is my fit range
+                dcb.SetParNames("c","mu","sig","A","n")              
+                
+                ## Set par. limits to help the minimizer converge
+                dcb.SetParLimits(0 , 0 ,99999)                             # c >= 0
+                dcb.SetParLimits(1 ,-1   ,1  )                             # mu between -1 and 1
+                dcb.SetParLimits(2 , 0.01,0.2)                             # sigma between 10 and 200ps
+                dcb.SetParLimits(3 , 0   ,99 )                             # A1 >= 0
+                dcb.SetParLimits(4 , 0   ,99 )                             # n  <= 0
+                dcb.SetParameters(100, 0.3, 0.05, 1, 1)                    # Some guesses to help things along 
 
                 max_n_refits  = 5
-                min_n_events  = 50
+                min_n_events  = 100
                 n_entries = int(h_p.GetEntries())
                 if (n_entries > min_n_events): 
                 
-                    fit = h_p.Fit("double_xtal_ball", "QBRM")                   # Try the fit again
+                    fit = h_p.Fit("dcb", "QBRM")                   # Try the fit again
                     status = gMinuit.fCstatu                                    # Get the fit status, IE 'OK', 'CONVERGED', 'FAILED'
                     while (not 'OK' in status) and (not 'CONVERGED' in status) and (not 'LIMIT_REACHED' in status):
 
                         print 'Fit failed for slice number {} with {} entries. Attempting refit {}/{}'.format(bini, n_entries, refit_counter+1, max_n_refits)
                         tr = TRandom()
                         tr.SetSeed(0)
-                        double_xtal_ball.SetParameter(0, tr.Uniform(  0, 9999)) # Reset the parameters 
-                        double_xtal_ball.SetParameter(1, tr.Uniform( -1, 1   ))
-                        double_xtal_ball.SetParameter(2, tr.Uniform(  0, 0.2 ))
-                        double_xtal_ball.SetParameter(3, tr.Uniform(  0, 5   ))
-                        fit = h_p.Fit("double_xtal_ball", "QBRMWE")             # Try the fit again
+                        dcb.SetParameter(0, tr.Uniform(  0, 9999)) # Reset the parameters 
+                        dcb.SetParameter(1, tr.Uniform( -1, 1   ))
+                        dcb.SetParameter(2, tr.Uniform(  0, 0.2 ))
+                        dcb.SetParameter(3, tr.Uniform(  0, 5   ))
+                        fit = h_p.Fit("dcb", "QBRMWE")             # Try the fit again
                         status = gMinuit.fCstatu                                # Get the fit status
                         refit_counter += 1
 
@@ -292,12 +288,15 @@ class AnalysisTools:
                             status = 'LIMIT_REACHED'
 
                     if refit_counter != max_n_refits:
-                        chi2 = double_xtal_ball.GetChisquare()/double_xtal_ball.GetNDF()
 
-                        mean = double_xtal_ball.GetParameter(1)
-                        res  = double_xtal_ball.GetParameter(2)
-                        mean_err = double_xtal_ball.GetParError(1)
-                        res_err  = chi2*double_xtal_ball.GetParError(2)
+                        print "Slice {}/{} fitted successfully".format(bini, n_bins)
+
+                        chi2 = dcb.GetChisquare()/dcb.GetNDF()
+
+                        mean = dcb.GetParameter(1)
+                        res  = dcb.GetParameter(2)
+                        mean_err = dcb.GetParError(1)
+                        res_err  = chi2*dcb.GetParError(2)
 
                         lowedge  = h.GetXaxis().GetBinLowEdge(bini)
                         highedge = h.GetXaxis().GetBinLowEdge(bini+1)
@@ -308,14 +307,17 @@ class AnalysisTools:
                         hh_2_tmp.append([res, res_err])
                    
             if fit_type == "gaus":
+
                 max_n_refits  = 50
                 min_n_events  = 50
                 n_entries = int(h_p.GetEntries())
                 if (n_entries > min_n_events): 
+
                     gauss = TF1("gauss", "gaus")
                     fit = h_p.Fit(gauss, "QM")
                     status = gMinuit.fCstatu                                    # Get the fit status, IE 'OK', 'CONVERGED', 'FAILED'
                     while (not 'OK' in status) and (not 'CONVERGED' in status) and (not 'LIMIT_REACHED' in status):
+
                         print 'Fit failed for slice number {} with {} entries. Attempting refit {}/{}'.format(bini, n_entries, refit_counter+1, max_n_refits)
                         fit = h_p.Fit(gauss, "QM")                              # Try the fit again
                         status = gMinuit.fCstatu                                # Get the fit status
@@ -328,6 +330,8 @@ class AnalysisTools:
                             status = 'LIMIT_REACHED'
 
                     if refit_counter != max_n_refits:
+
+                        print "Slice {}/{} fitted successfully".format(bini, n_bins)
 
                         chi2 = gauss.GetChisquare()/gauss.GetNDF()
                         mean = gauss.GetParameter(1)

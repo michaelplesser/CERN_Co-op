@@ -5,7 +5,7 @@
 import sys
 import signal
 import RunInfoTools
-from ROOT import TFile, TH1F, TH2F, TF1, TCut
+from ROOT import TFile, TH1F, TH2F, TF1, TCut, gSystem
 from array import array
 
 ## Makes for clean exits out of while loops
@@ -16,7 +16,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 class PlotterTools:
 
-    def __init__(self, args, savepath, filei):
+    def __init__(self, args, savepath, filei, centers):
 
         ## savepath (only used for logfiles)
         self.savepath   = savepath
@@ -30,13 +30,13 @@ class PlotterTools:
 
         self.min_amp_max = self.args.am
         self.dampcut     = self.args.da
-        self.x_pos_cut   = floar(self.args.pc.split(',')[0])
-        self.y_pos_cut   = floar(self.args.pc.split(',')[1])
+        self.x_pos_cut   = float(self.args.pc.split(',')[0])
+        self.y_pos_cut   = float(self.args.pc.split(',')[1])
 
         rit = RunInfoTools.RunInfoTools(args, savepath, filei)
         self.ampbias                 = rit.ampbias
         self.xtal                    = rit.xtal
-        self.x_center, self.y_center = rit.find_target_center()
+        self.x_center, self.y_center = centers[0], centers[1] 
         self.Aeff                    = rit.Aeff
 
     ## Cuts to selection
@@ -44,6 +44,9 @@ class PlotterTools:
 
         tfile  = TFile(self.file)
         tree   = tfile.Get("h4")
+
+        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/CfgManager/lib/libCFGMan.so")
+        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/lib/libH4Analysis.so")
 
         ## Sweep to find the chi2 range [1/val,val] that gives 95% acceptance when used as a cut
         def chi2_range_sweep():
@@ -55,10 +58,10 @@ class PlotterTools:
                 return direction 
 
             chi_vals   = [0,0]                              # One range for xtal[0], and one for xtal[1]
+            print "Beginning chi2 sweep..."
             for i in range(len(chi_vals)):
-                print "Beginning chi2 sweep for {}".format(self.xtal[i])
                 h_chi  = TH1F("h_chi","",1000,0,1000)                                           
-                basic_cut = "fit_chi2[{}]>0.001 && fabs(Y)<20 && fabs(X)<20".format(self.xtal[i])
+                basic_cut = "fit_chi2[{}]>0.001 && fabs(fitResult[0].y())<20 && fabs(fitResult[0].x())<20".format(self.xtal[i])
                 tree.Draw("fit_chi2[{}]>>h_chi".format(self.xtal[i]), TCut(basic_cut))         
                 tot_events = h_chi.GetEntries()
                 stepsize           = 64                                                         # By how much chi_val is changed each time
@@ -81,18 +84,20 @@ class PlotterTools:
             return [ [1./chi_vals[0], chi_vals[0]], [1./chi_vals[1], chi_vals[1]] ]
 
         ## Misc cuts that may be applied
-        # We have 2 hodo planes we can use for X and Y. This cut picks the best one for nFibresOn
-        dfibers = 1                                                                             # nfibers +- from 2 to accept. IE df = 1 -> 1-3 fibersOn 
-        fiber_cut_tmp = "fabs(nFibresOnX[{0}]-2)<={1} && fabs(nFibresOnY[{0}]-2)<={1}"
-        fiber_cut = "("+fiber_cut_tmp.format(0,dfibers)+' || '+fiber_cut_tmp.format(1,dfibers)+")"
+
+        tracks_cut = "n_tracks == 1"
 
         ## Loose cut, fabs(X) and fabs(Y)<20, but also cut 1mm around the center in the interesting direction
         ## Not ideal, but eliminates the knee in the res. plot from gap electrons
-        #if (self.xtal[2] == 'C3down') or (self.xtal[2] == 'C3up'):
-        #    position_cut = "(fabs( X-{0} )<{1}) && (Y>({2}+1) || Y<({2}-1)) && Y<20".format(self.x_center, self.x_pos_cut, self.y_center)
-        #elif (self.xtal[2] == 'C3left') or (self.xtal[2] == 'C3right'):
-        #    position_cut = "(fabs( Y-{0} )<{1}) && (X>({2}+1) || X<({2}-1)) && X<20".format(self.y_center, self.y_pos_cut, self.x_center)
-        position_cut = "(fabs( X-{0} )<{1}) && (fabs( Y-{2} )<{3})".format(self.x_center, self.x_pos_cut, self.y_center, self.y_pos_cut)
+        if (self.xtal[2] == 'C3down') or (self.xtal[2] == 'C3up'):
+            position_cut  = "(fabs( fitResult[0].x() - {0} ) < {1})".format(self.x_center, self.x_pos_cut)
+            position_cut += " && (fitResult[0].y() > ({0}+1) || fitResult[0].y() < ({0}-1))".format(self.y_center)
+            position_cut += " && fabs( fitResult[0].y() ) < 20"
+        elif (self.xtal[2] == 'C3left') or (self.xtal[2] == 'C3right'):
+            position_cut  = "(fabs( fitResult[0].y() - {0} ) < {1})".format(self.y_center, self.y_pos_cut)
+            position_cut += " && (fitResult[0].x() > ({0}+1) || fitResult[0].x() < ({0}-1))".format(self.x_center)
+            position_cut += " && fabs( fitResult[0].x() ) < 20"
+        #position_cut = "(fabs( fitResult[0].x()-{0} )<{1}) && (fabs( fitResult[0].y()-{2} )<{3})".format(self.x_center, self.x_pos_cut, self.y_center, self.y_pos_cut)
         
         clock_cut    = "time_maximum[{}]==time_maximum[{}]".format(self.xtal[0],self.xtal[1])
         amp_cut      = "amp_max[{}]>{} && {}*amp_max[{}]>{}".format(self.xtal[0],self.min_amp_max,self.ampbias,self.xtal[1],self.min_amp_max)
@@ -105,16 +110,16 @@ class PlotterTools:
         Cts = []
         ## Chi2 cuts
         if self.args.x is not False:              
-            Cts.append( fiber_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut )
-            Cts.append( fiber_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut )
+            Cts.append( tracks_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut )
+            Cts.append( tracks_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut )
 
         ## Aeff cuts
         if self.args.a is not False: 
-            Cts.append( fiber_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut + " && " + chi2_cut )
+            Cts.append( tracks_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut + " && " + chi2_cut )
 
         ## Res. cuts
         if self.args.r is not False:
-            Cts.append( fiber_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut + " && " + chi2_cut )
+            Cts.append( tracks_cut + " && " + position_cut + " && " + clock_cut + " && " + amp_cut + " && " + dampl_cut + " && " + chi2_cut )
 
         # Write some info to the logfile
         with open(self.savepath+self.xtal[2]+'_log.txt', 'a') as f:

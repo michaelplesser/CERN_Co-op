@@ -88,20 +88,15 @@ def main():
         print_lines()        
 
         rit   = RunInfoTools(args, savepath, f)
-        x_center, y_center = rit.find_target_center()
+        centers = rit.find_target_center()
+        print_lines()
         rit.start_log_file()
 
-        at    = AnalysisTools(args, savepath, f)        # Class with tools for analysis. Mainly adjustments
-        pt    = PlotterTools(args, savepath, f)         # Class with tools for plotting
-        Cuts  = pt.define_cuts()                        # Get the cuts for the relevant plots, flagged in args
-        Plots = pt.define_plots()                       # Get what plots are desired, flagged in args
-    
+        at    = AnalysisTools(args, savepath, f, centers)       # Class with tools for analysis. Mainly adjustments
+        pt    = PlotterTools(args, savepath, f, centers)        # Class with tools for plotting
+        Cuts  = pt.define_cuts()                                # Get the cuts for the relevant plots, flagged in args
+        Plots = pt.define_plots()                               # Get what plots are desired, flagged in args
         for i in xrange(len(Plots)):                    # For each plot of interest
-
-                print_lines()
-                print "X center: {0:.2f}".format(x_center)
-                print "Y center: {0:.2f}".format(y_center)
-                print_lines()
 
                 cut = Cuts[i]                           # Cuts for the current plot of interest
                 p   = Plots[i]                          # Plotting info, what to plot, what bounds, etcetc
@@ -120,10 +115,9 @@ def main():
                     nentries_postcut = int(h.GetEntries()) 
                     
                     h.GetXaxis().SetTitle(p[1])
-                    print
-                    print "Number of entries pre-cuts: ", nentries_precut
-                    print "Number of entries post-cuts:", nentries_postcut
-                    print
+                    print "Number of entries pre-cuts:  {0}".format(nentries_precut)
+                    print "Number of entries post-cuts: {0}".format(nentries_postcut)
+                    print "Cut efficiency:              {0:.2f}%".format(100.*nentries_postcut/nentries_precut)
 
                     ## Save plots
                     ft.save_files(h, savepath, f[1], '_'+p[1])
@@ -131,9 +125,11 @@ def main():
                 if len(p)==8:   # -r is for a TH2F and requires 8 params
                     
                     ## Use a linear adjustment to account for the "walking-mean" effect resulting from largely uneven Aeff's
-                    if args.lc == True: p[0] = at.dt_linear_correction(tree,cut)
-                    
-                    print_lines()
+                    if args.lc == True: 
+                        print_lines()
+                        print "Applying linear correction..."
+                        p[0] = at.dt_linear_correction(tree,cut)
+                        print_lines()
 
                     # Create the color map
                     hh = pt.make_color_map(p,'',tree)
@@ -147,25 +143,24 @@ def main():
                     print "Number of entries post-cuts: {0}".format(nentries_postcut)
                     print "Cut efficiency:              {0:.2f}%".format(100.*nentries_postcut/nentries_precut)
 
+                    # Create the resolution versus Aeff plot
+                    hh_2 = at.fit_y_slices(hh)[1]
+                    hh_2.SetTitle(f[1]+'_dt_resolution_vs_aeff')                    
+                    hh_2.Draw()
+                    hh_2 = at.adjust_bin_centers(hh_2)
+
+                    # Fit the plot using a user-defined function
+                    if args.fit == True: at.fit_resolution(hh_2)
+
+                    # Save plots
+                    ft.save_files(hh,   savepath, f[1], '_dt_vs_aeff_heatmap')
+                    ft.save_files(hh_2, savepath, f[1], '_resolution_vs_aeff')
+
                     with open(savepath+f[1].split('_')[-1]+'_log.txt', 'a') as logfile:
                         logfile.write("\nNumber of entries ( hh.GetEntries() ):\n\tpre-cuts:\n")
                         logfile.write("\t\t" + str(nentries_precut)  + '\n')    
                         logfile.write("\t\t" + str(nentries_postcut) + '\n')
 
-                    # Create the resolution versus Aeff plot
-                    hh_2 = at.fit_y_slices(hh)[1]
-                    hh_2.SetTitle(f[1]+'_dt_resolution_vs_aeff')                    
-                    hh_2.Draw()
-                    
-                    hh_2 = at.adjust_bin_centers(hh_2)
-
-                    # Fit the plot using a user defined function
-                    if args.fit == True: at.fit_resolution(hh_2)
-
-                    # Save plots
-                    print
-                    ft.save_files(hh,   savepath, f[1], '_dt_vs_aeff_heatmap')
-                    ft.save_files(hh_2, savepath, f[1], '_resolution_vs_aeff')
         
 
 if __name__ == "__main__":
