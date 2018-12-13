@@ -33,6 +33,7 @@ def input_arguments():
     parser.add_argument('-e'  ,    type=str,                        default='compiled',          help='Energy to use for analysis (IE "250GeV" or "compiled")')
     parser.add_argument('--freq',  type=str,                        default='160MHz'  ,          help='Sampling frequency,   IE "160MHz" or "120 MHz"')
     parser.add_argument('--temp',  type=str,                        default='18deg'   ,          help='Sampling temperature, IE "18deg"  or "9deg"')
+    parser.add_argument('--name',  type=str,                        default='ECAL_H4_Oct2018',   help='Name prefix')
 
     parser.add_argument('-x'  ,             action='store_true',                                 help='Create plots for fit_chi2[C3] and fit_chi2[<2nd xtal>]')
     parser.add_argument('-a'  ,             action='store_true',                                 help='Create effective voltage (Aeff) plot')
@@ -42,12 +43,12 @@ def input_arguments():
     parser.add_argument('--fit',            action='store_true',                                 help='Fit using a user function the resolution versus Aeff plot')
 
     parser.add_argument('--xb',             action='store',         default='100,-5,1000',       help='Chi2  plot bounds, "nbins,chi2min,chi2max"')
-    parser.add_argument('--rb',             action='store',         default='20,0,2000,100,-2,2',help='Res.  plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
+    parser.add_argument('--rb',             action='store',         default='20,0,1400,200,-2,2',help='Res.  plot bounds, "nbins1,Aeffmin,Aeffmax,nbins2,dtmin,dtmax"')
     parser.add_argument('--ab',             action='store',         default='100,0,2000',        help='Aeff  plot bounds, "nbins,Aeffmin,Aeffmax"')
 
-    parser.add_argument('--am', '--ampmax' ,action='store',         default='0',                 help='Amp_max lower bound, used for cuts ')
-    parser.add_argument('--da', '--dampl'  ,action='store',         default='100000',            help='dampl cut, max allowed difference in fit_ampl between xtals')
-    parser.add_argument('--pc', '--poscut' ,action='store',         default='3,3',               help='Position cut, 1/2 side-length of a square around target center to accept')
+    parser.add_argument('--am', '--ampmax' ,action='store',         default='1'   ,              help='fit_ampl lower bound, used for cuts ')
+    parser.add_argument('--da', '--dampl'  ,action='store',         default='1e9'   ,            help='dampl cut, max allowed difference in fit_ampl between xtals')
+    parser.add_argument('--pc', '--poscut' ,action='store',         default='5,5',               help='Position cut, 1/2 side-length of a square around target center to accept')
     parser.add_argument('--lc', '--lincorr',action='store_true',    default=False,               help='Use a linear correction to counter the "walking mean" effect')
 
     args = parser.parse_args()
@@ -74,7 +75,6 @@ def main():
     gROOT.ProcessLine("gErrorIgnoreLevel = kError;")    # Surpress info messages below Error or Fatal levels (IE info or warning)
 
     args = input_arguments()
-
     print_lines(2)
 
     ## Class for defining save path and finding analysis files. Also has "save_files" fn   
@@ -87,7 +87,7 @@ def main():
         print "File:", f[0]
         print_lines()        
 
-        rit   = RunInfoTools(args, savepath, f)
+        rit     = RunInfoTools(args, savepath, f)
         centers = rit.find_target_center()
         print_lines()
         rit.start_log_file()
@@ -96,14 +96,13 @@ def main():
         pt    = PlotterTools(args, savepath, f, centers)        # Class with tools for plotting
         Cuts  = pt.define_cuts()                                # Get the cuts for the relevant plots, flagged in args
         Plots = pt.define_plots()                               # Get what plots are desired, flagged in args
-        for i in xrange(len(Plots)):                    # For each plot of interest
+        for i in xrange(len(Plots)):                            # For each plot of interest
 
-                cut = Cuts[i]                           # Cuts for the current plot of interest
-                p   = Plots[i]                          # Plotting info, what to plot, what bounds, etcetc
+                cut = Cuts[i]                                   # Cuts for the current plot of interest
+                p   = Plots[i]                                  # Plotting info, what to plot, what bounds, etcetc
 
                 tfile = TFile(f[0])
                 tree  = tfile.Get("h4")
-                c0    = TCanvas('c0', 'c0', 900, 600)
 
                 if len(p)==5:   # -x and -a options are for TH1F, and require 5 params 
 
@@ -124,9 +123,10 @@ def main():
 
                 if len(p)==8:   # -r is for a TH2F and requires 8 params
                     
+                    print_lines()
+
                     ## Use a linear adjustment to account for the "walking-mean" effect resulting from largely uneven Aeff's
                     if args.lc == True: 
-                        print_lines()
                         print "Applying linear correction..."
                         p[0] = at.dt_linear_correction(tree,cut)
                         print_lines()
@@ -144,10 +144,8 @@ def main():
                     print "Cut efficiency:              {0:.2f}%".format(100.*nentries_postcut/nentries_precut)
 
                     # Create the resolution versus Aeff plot
-                    hh_2 = at.fit_y_slices(hh)[1]
+                    hh_2 = at.fit_y_slices(hh, fit_type="gaus", adjust_bins=True)[1]             # Supports 'dcb'(double xtal ball) and 'gaus'. [0] is mean_fit, [1] is res_fit
                     hh_2.SetTitle(f[1]+'_dt_resolution_vs_aeff')                    
-                    hh_2.Draw()
-                    hh_2 = at.adjust_bin_centers(hh_2)
 
                     # Fit the plot using a user-defined function
                     if args.fit == True: at.fit_resolution(hh_2)
@@ -156,12 +154,11 @@ def main():
                     ft.save_files(hh,   savepath, f[1], '_dt_vs_aeff_heatmap')
                     ft.save_files(hh_2, savepath, f[1], '_resolution_vs_aeff')
 
+                    # Add to the log file
                     with open(savepath+f[1].split('_')[-1]+'_log.txt', 'a') as logfile:
                         logfile.write("\nNumber of entries ( hh.GetEntries() ):\n\tpre-cuts:\n")
                         logfile.write("\t\t" + str(nentries_precut)  + '\n')    
                         logfile.write("\t\t" + str(nentries_postcut) + '\n')
-
-        
 
 if __name__ == "__main__":
     main()

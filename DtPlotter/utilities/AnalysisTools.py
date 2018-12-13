@@ -18,10 +18,6 @@ class AnalysisTools:
         self.file     = filei[0]
         self.savepath = savepath
 
-        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/CfgManager/lib/libCFGMan.so")
-        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/lib/libH4Analysis.so")
-        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/DynamicTTree/lib/libDTT.so")
-
         self.ft  = FileTools.FileTools(args)
 
         rit = RunInfoTools.RunInfoTools(args, savepath, filei)
@@ -30,8 +26,13 @@ class AnalysisTools:
         self.x_center, self.y_center = centers[0], centers[1] 
         self.Aeff                    = rit.Aeff
 
+        # These lines annoyingly needed to make fitResult work :(
+        gSystem.Load("/afs/cern.ch/user/m/mplesser/H4Analysis/CfgManager/lib/libCFGMan.so")
+        gSystem.Load("/afs/cern.ch/user/m/mplesser/H4Analysis/lib/libH4Analysis.so")
+        gSystem.Load("/afs/cern.ch/user/m/mplesser/H4Analysis/DynamicTTree/lib/libDTT.so")
+
     ## When we assign a y-value (resolution) to a bin, by default it is assigned to the mid-point as an x-value (Aeff).
-    ## Really we should assign it to be the mean of the Aeff distribution in that bin. This fn makes that adjustmenti.
+    ## Really we should assign it to be the mean of the Aeff distribution in that bin. This fn makes that adjustment.
     def adjust_bin_centers(self, h):
 
         t_file    = TFile(self.file)
@@ -108,10 +109,8 @@ class AnalysisTools:
         tree.Draw("{0}:{1}>>hadjust".format(dt, axis), TCut(cut), "COLZ")
 
         print "Fitting y-slices..."
-        hadjust_1  = self.fit_y_slices(hadjust)[0]                                  # Mean of the dt distribution plotted against the position coordinate
+        hadjust_1  = self.fit_y_slices(hadjust, "gaus")[0]                                  # Mean of the dt distribution plotted against the position coordinate
         hadjust_1  = remove_outliers(hadjust_1)
-        self.ft.save_files(hadjust_1, self.savepath,"{}_{}_".format(self.energy,self.xtal[2]),"dt_adjustment") # Saving post-fit causes a seg fault in terminal mode ROOT
-
         slope = 1                                                                   # Enter the coming while loop directly instead of fitting once, getting the slope, and then entering
         if hadjust_1.GetN() < 4:                                                    # If outlier removal leaves < 4 points, that's not enough for a trustworthy fit
             print "Not enough points remaining for accurate linear fit. Dt vs Dampl slope set to 0"
@@ -160,7 +159,7 @@ class AnalysisTools:
             f.write("\tdt-intercept:\t\t {}\n".format(dt0))
             f.write("\tReduced chi2:\t\t {}\n".format(red_chi2))
 
-        ## Add a linear correction to dt: dt --> dt-(dx*slope)
+        ## Add a linear correction to dt: dt --> dt-(slope * dx)
         adjusted_plot = "( ({0}) - ( {1} * ({2}-{3}) ) ):{4}".format(dt,slope,axis,lin_fit_center,self.Aeff)
         return adjusted_plot
 
@@ -236,48 +235,54 @@ class AnalysisTools:
             f.write("\tReduced  fit chi2:   \t{}       \n".format(red_chi2))
 
     ## Advanced version of FitSlicesY(). Uses a double sided crystal ball fit
-    def fit_y_slices(self, h, fit_type="gaus"):
+    def fit_y_slices(self, h, fit_type="gaus", adjust_bins=False):
         
         bins     = []
         hh_1_tmp = []
         hh_2_tmp = []
         n_bins   = h.GetXaxis().GetNbins()
-        for bini in range(1, n_bins):
+        for bini in range(1, n_bins+1):
 
             h_p = h.ProjectionY('h_p',bini,bini)                                # Get the distribution in y as  TH1 for bin# 'bini'
-             
             refit_counter = 0
+
+            ## Two fit methods, Double crystal ball or gausian
             if fit_type == "dcb":
 
-                gROOT.ProcessLine(".x /afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/DtPlotter/utilities/Double_Crystal_Ball_Fit.C")
-                dcb = TF1("dcb", double_xtal_ball, -2, 2, 5)  # -2 to 2 is my fit range
+                ## Use a c version of the double crystal ball function. Faster...
+                gROOT.ProcessLine(".x /afs/cern.ch/user/m/mplesser/my_git/CERN_Co-op/DtPlotter/utilities/Double_Crystal_Ball_Fit.C")
+                dcb = TF1("dcb", double_xtal_ball, -2, 2, 5)                # -2 to 2 is my fit range
                 dcb.SetParNames("c","mu","sig","A","n")              
                 
                 ## Set par. limits to help the minimizer converge
-                dcb.SetParLimits(0 , 0 ,99999)                             # c >= 0
-                dcb.SetParLimits(1 ,-1   ,1  )                             # mu between -1 and 1
-                dcb.SetParLimits(2 , 0.01,0.2)                             # sigma between 10 and 200ps
-                dcb.SetParLimits(3 , 0   ,99 )                             # A1 >= 0
-                dcb.SetParLimits(4 , 0   ,99 )                             # n  <= 0
-                dcb.SetParameters(100, 0.3, 0.05, 1, 1)                    # Some guesses to help things along 
+                dcb.SetParLimits(0 , 0 ,99999)                              # c >= 0
+                dcb.SetParLimits(1 ,-2   ,2  )                              # mu between -1 and 1
+                dcb.SetParLimits(2 , 0.01,0.2)                              # sigma between 10 and 200ps
+                dcb.SetParLimits(3 , 0   ,9  )                              # A1 >= 0
+                dcb.SetParLimits(4 , 0   ,9 )                               # n  >= 0
+                dcb.SetParameters(100, 0.3, 0.05, 1, 1)                     # Some guesses to help things along 
 
-                max_n_refits  = 5
-                min_n_events  = 100
-                n_entries = int(h_p.GetEntries())
-                if (n_entries > min_n_events): 
-                
-                    fit = h_p.Fit("dcb", "QBRM")                   # Try the fit again
+                max_n_refits   = 5
+                min_n_events   = 100
+                n_entries      = int(h_p.GetEntries())
+                if (n_entries >= min_n_events): 
+                    h_p.Fit("gaus","QRM")                                       # Use a gaussian to quickly get a good init value for peak, mean, and sigma
+                    p_gaus = gaus.GetParameters()
+                    dcb.SetParameters(p_gaus[0], p_gaus[1], p_gaus[2], 1, 1)    # Use the gaussian parameters to help the dcb
+                    fit    = h_p.Fit("dcb", "QBRM")                             # Try the fit again
+
                     status = gMinuit.fCstatu                                    # Get the fit status, IE 'OK', 'CONVERGED', 'FAILED'
                     while (not 'OK' in status) and (not 'CONVERGED' in status) and (not 'LIMIT_REACHED' in status):
 
                         print 'Fit failed for slice number {} with {} entries. Attempting refit {}/{}'.format(bini, n_entries, refit_counter+1, max_n_refits)
                         tr = TRandom()
                         tr.SetSeed(0)
-                        dcb.SetParameter(0, tr.Uniform(  0, 9999)) # Reset the parameters 
+                        dcb.SetParameter(0, tr.Uniform(  0, 9999))              # Reset the parameters 
                         dcb.SetParameter(1, tr.Uniform( -1, 1   ))
                         dcb.SetParameter(2, tr.Uniform(  0, 0.2 ))
                         dcb.SetParameter(3, tr.Uniform(  0, 5   ))
-                        fit = h_p.Fit("dcb", "QBRMWE")             # Try the fit again
+
+                        fit = h_p.Fit("dcb", "QBRMWE")                          # Try the fit again
                         status = gMinuit.fCstatu                                # Get the fit status
                         refit_counter += 1
 
@@ -289,13 +294,13 @@ class AnalysisTools:
 
                     if refit_counter != max_n_refits:
 
-                        print "Slice {}/{} fitted successfully".format(bini, n_bins)
+                        print "Slice {}/{} fit successfully".format(bini, n_bins)
 
                         chi2 = dcb.GetChisquare()/dcb.GetNDF()
 
                         mean = dcb.GetParameter(1)
                         res  = dcb.GetParameter(2)
-                        mean_err = dcb.GetParError(1)
+                        mean_err = chi2*dcb.GetParError(1)
                         res_err  = chi2*dcb.GetParError(2)
 
                         lowedge  = h.GetXaxis().GetBinLowEdge(bini)
@@ -305,21 +310,24 @@ class AnalysisTools:
                         bins.append( [lowedge, highedge, center] )
                         hh_1_tmp.append([mean, mean_err])
                         hh_2_tmp.append([res, res_err])
+                elif (n_entries < min_n_events): 
+                    print "Slice {}/{} skipped, too few events ({}<{})".format(bini, n_bins, n_entries, min_n_events)
                    
             if fit_type == "gaus":
 
                 max_n_refits  = 50
                 min_n_events  = 50
                 n_entries = int(h_p.GetEntries())
-                if (n_entries > min_n_events): 
+                if (n_entries >= min_n_events): 
 
-                    gauss = TF1("gauss", "gaus")
-                    fit = h_p.Fit(gauss, "QM")
+                    fit = h_p.Fit("gaus", "QM")
+
                     status = gMinuit.fCstatu                                    # Get the fit status, IE 'OK', 'CONVERGED', 'FAILED'
                     while (not 'OK' in status) and (not 'CONVERGED' in status) and (not 'LIMIT_REACHED' in status):
 
                         print 'Fit failed for slice number {} with {} entries. Attempting refit {}/{}'.format(bini, n_entries, refit_counter+1, max_n_refits)
-                        fit = h_p.Fit(gauss, "QM")                              # Try the fit again
+                        fit = h_p.Fit("gaus", "QM")                              # Try the fit again
+
                         status = gMinuit.fCstatu                                # Get the fit status
                         refit_counter += 1
 
@@ -331,13 +339,13 @@ class AnalysisTools:
 
                     if refit_counter != max_n_refits:
 
-                        print "Slice {}/{} fitted successfully".format(bini, n_bins)
+                        print "Slice {}/{} fit successfully".format(bini, n_bins)
 
-                        chi2 = gauss.GetChisquare()/gauss.GetNDF()
-                        mean = gauss.GetParameter(1)
-                        res  = gauss.GetParameter(2)
-                        mean_err = chi2*gauss.GetParError(1)
-                        res_err  = chi2*gauss.GetParError(2)
+                        chi2 = gaus.GetChisquare()/gaus.GetNDF()
+                        mean = gaus.GetParameter(1)
+                        res  = gaus.GetParameter(2)
+                        mean_err = chi2*gaus.GetParError(1)
+                        res_err  = chi2*gaus.GetParError(2)
 
                         lowedge  = h.GetXaxis().GetBinLowEdge(bini)
                         highedge = h.GetXaxis().GetBinLowEdge(bini+1)
@@ -346,6 +354,8 @@ class AnalysisTools:
                         bins.append( [lowedge, highedge, center] )
                         hh_1_tmp.append([mean, mean_err])
                         hh_2_tmp.append([res, res_err])
+                if (n_entries < min_n_events): 
+                    print "Slice {}/{} skipped, too few events ({}<{})".format(bini, n_bins, n_entries, min_n_events)
 
         bins, hh_1_tmp, hh_2_tmp = zip(*filter(lambda x: abs(x[2][0])>0.01, zip(bins, hh_1_tmp, hh_2_tmp)))    # Remove points where the resolution is <10 ps because this means the fit failed
         bins, hh_1_tmp, hh_2_tmp = zip(*filter(lambda x: x[2][1]<0.10, zip(bins, hh_1_tmp, hh_2_tmp)))         # Remove points where the res. err.  is >100ps because this means the fit failed
@@ -358,6 +368,12 @@ class AnalysisTools:
         resolutions_err = array('d', [ x[1] for x in hh_2_tmp])
         hh_1 = TGraphAsymmErrors(len(bins), xs, means       , xerr, xerr, means_err      , means_err      ) 
         hh_2 = TGraphAsymmErrors(len(bins), xs, resolutions , xerr, xerr, resolutions_err, resolutions_err) 
+        
+        if adjust_bins == True:
+            # The last minor adjustment, this moves the x_center of each bin to the mean of the Aeff distribution in that bin
+            # Should only be used by things plotted against Aeff, IE resolution vs Aeff, but NOT dt vs dx
+            hh_1 = self.adjust_bin_centers(hh_1)
+            hh_2 = self.adjust_bin_centers(hh_2)
 
         return hh_1, hh_2
 

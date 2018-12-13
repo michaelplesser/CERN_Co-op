@@ -19,14 +19,13 @@ class PlotterTools:
     def __init__(self, args, savepath, filei, centers):
 
         ## savepath (only used for logfiles)
-        self.savepath   = savepath
+        self.savepath    = savepath
         
         ## Analysis file
-        self.file       = filei[0]                      # Full file with path
-        self.file_title = filei[1]                      # '<energy>_<position>', IE '25GeV_C3up'
+        self.file        = filei[0]                      # Full file with path
+        self.file_title  = filei[1]                      # '<energy>_<position>', IE '25GeV_C3up'
 
-        ## Giving args shorter/more informative names
-        self.args    = args
+        self.args        = args
 
         self.min_amp_max = self.args.am
         self.dampcut     = self.args.da
@@ -39,17 +38,20 @@ class PlotterTools:
         self.x_center, self.y_center = centers[0], centers[1] 
         self.Aeff                    = rit.Aeff
 
+        # These lines annoyingly needed to make fitResult work :(
+        gSystem.Load("/afs/cern.ch/user/m/mplesser/H4Analysis/CfgManager/lib/libCFGMan.so")
+        gSystem.Load("/afs/cern.ch/user/m/mplesser/H4Analysis/lib/libH4Analysis.so")
+        gSystem.Load("/afs/cern.ch/user/m/mplesser/H4Analysis/DynamicTTree/lib/libDTT.so")
+
     ## Cuts to selection
     def define_cuts(self):
 
         tfile  = TFile(self.file)
         tree   = tfile.Get("h4")
 
-        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/CfgManager/lib/libCFGMan.so")
-        gSystem.Load("/afs/cern.ch/work/m/mplesser/private/my_git/CERN_Co-op/H4Analysis_Fork/H4Analysis/lib/libH4Analysis.so")
-
         ## Sweep to find the chi2 range [1/val,val] that gives 95% acceptance when used as a cut
         def chi2_range_sweep():
+
             ## Checks if the chi2 sweep is complete, or if it needs to change directions because it overshot
             def check_range(window, percentage):
                 if (percentage <= 0.95+window) and (percentage >= 0.95-window): direction =  0  # Sweep completed
@@ -61,11 +63,13 @@ class PlotterTools:
             print "Beginning chi2 sweep..."
             for i in range(len(chi_vals)):
                 h_chi  = TH1F("h_chi","",1000,0,1000)                                           
-                basic_cut = "fit_chi2[{}]>0.001 && fabs(fitResult[0].y())<20 && fabs(fitResult[0].x())<20".format(self.xtal[i])
+                basic_cut  = "n_tracks==1 && "
+                basic_cut += "fabs(fitResult[0].y())<10 && fabs(fitResult[0].x())<10 && ".format(self.xtal[i])
+                basic_cut += "fit_time[{0}]>0 && fit_time[{1}]>0".format(self.xtal[0], self.xtal[1])
                 tree.Draw("fit_chi2[{}]>>h_chi".format(self.xtal[i]), TCut(basic_cut))         
                 tot_events = h_chi.GetEntries()
                 stepsize           = 64                                                         # By how much chi_val is changed each time
-                chi_val            = 1                                                          # A guess to start
+                chi_val            = 0                                                          # A guess to start
                 percent_plus_minus = 0.005                                                      # What is the acceptable range of percent's around 0.95, IE 0.01->0.94-0.96
                 direction          = 1                                                          # Start by increasing chi_val
                 lastdirection      = direction                                                  # Memory for checking if the direction has changed
@@ -75,7 +79,6 @@ class PlotterTools:
                     tree.Draw("fit_chi2[{}]>>h_chi".format(self.xtal[i]), TCut(chi_cut))
                     percent_accept  = 1.*h_chi.GetEntries()/tot_events
                     lastdirection   = direction
-
                     direction       = check_range(percent_plus_minus, percent_accept)           # Update direction. +1, -1, or 0 if complete
                     if direction   != lastdirection:  stepsize /= 2.                            # Reduce step size if we overshoot it and changed direction
 
@@ -84,23 +87,27 @@ class PlotterTools:
             return [ [1./chi_vals[0], chi_vals[0]], [1./chi_vals[1], chi_vals[1]] ]
 
         ## Misc cuts that may be applied
-
+        
         tracks_cut = "n_tracks == 1"
 
-        ## Loose cut, fabs(X) and fabs(Y)<20, but also cut 1mm around the center in the interesting direction
+        ## Loose cut, fabs(X) and fabs(Y)<20, but also cut out 1mm around the center in the interesting direction
         ## Not ideal, but eliminates the knee in the res. plot from gap electrons
         if (self.xtal[2] == 'C3down') or (self.xtal[2] == 'C3up'):
             position_cut  = "(fabs( fitResult[0].x() - {0} ) < {1})".format(self.x_center, self.x_pos_cut)
             position_cut += " && (fitResult[0].y() > ({0}+1) || fitResult[0].y() < ({0}-1))".format(self.y_center)
-            position_cut += " && fabs( fitResult[0].y() ) < 20"
+            position_cut += " && fabs( fitResult[0].y() ) < 15"
         elif (self.xtal[2] == 'C3left') or (self.xtal[2] == 'C3right'):
-            position_cut  = "(fabs( fitResult[0].y() - {0} ) < {1})".format(self.y_center, self.y_pos_cut)
+            position_cut  = "(fabs( fitResult[0].y()  ) < {1})".format(self.y_center, self.y_pos_cut)
             position_cut += " && (fitResult[0].x() > ({0}+1) || fitResult[0].x() < ({0}-1))".format(self.x_center)
-            position_cut += " && fabs( fitResult[0].x() ) < 20"
+            position_cut += " && fabs( fitResult[0].x() ) < 15"
+
+        ## Back-pocket position cut, maybe to be used later. More basic, just cuts around the center
         #position_cut = "(fabs( fitResult[0].x()-{0} )<{1}) && (fabs( fitResult[0].y()-{2} )<{3})".format(self.x_center, self.x_pos_cut, self.y_center, self.y_pos_cut)
-        
+        #position_cut = "fabs( fitResult[0].x())<10 && fabs(fitResult[0].y())<10"
+
         clock_cut    = "time_maximum[{}]==time_maximum[{}]".format(self.xtal[0],self.xtal[1])
-        amp_cut      = "amp_max[{}]>{} && {}*amp_max[{}]>{}".format(self.xtal[0],self.min_amp_max,self.ampbias,self.xtal[1],self.min_amp_max)
+        ## amp_cut is due for improvement! TBD
+        amp_cut      = "fit_ampl[{}]>{} && {}*fit_ampl[{}]>{}".format(self.xtal[0],self.min_amp_max,self.ampbias,self.xtal[1],self.min_amp_max)
         dampl_cut    = "fabs(fit_ampl[{}]-{}*fit_ampl[{}] )<{}".format(self.xtal[0], self.ampbias, self.xtal[1], self.dampcut)
 
         chi2_bounds  = chi2_range_sweep()
@@ -135,7 +142,7 @@ class PlotterTools:
 
     ## Plots to be created, similar structure to define_cuts
     def define_plots(self):
-    
+
         Plts    = []
         if self.args.x is not False:
             chi2bins   = self.args.xb.split(',')
