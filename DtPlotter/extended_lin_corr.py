@@ -7,144 +7,199 @@
 import ROOT
 from numpy import roots, isreal
 
-def find_target_center(t_tree, xtal):  
+def find_target_center(files, trees):
 
-    print "Finding target center..."
+    ri.axis
+    centers = []
+    print "Finding target centers..."
 
-    ## Hodoscope center, not beam center, but useful for reference
-    # Finds the first and last bins above some threshold and takes the mid-bin between them.
-    # This prevents uneven distributions from skewing the result if you just used GetMean()
-    hodox = TH1F("hodox", "", 100, -20, 20)
-    hodoy = TH1F("hodoy", "", 100, -20, 20)
-    t_tree.Draw("fitResult[0].x()>>hodox")
-    t_tree.Draw("fitResult[0].y()>>hodoy")
-    threshold = hodox.GetMaximum()/3.
-    threshold = hodoy.GetMaximum()/3.
-    hodo_x_center  = hodox.GetBinCenter( (hodox.FindFirstBinAbove(threshold) + hodox.FindLastBinAbove(threshold)) / 2 )
-    hodo_y_center  = hodoy.GetBinCenter( (hodoy.FindFirstBinAbove(threshold) + hodoy.FindLastBinAbove(threshold)) / 2 )
+    for file, t_tree in zip(files, trees):
 
-    ## Simpler but less accurate. This method takes the ratio of the two amplitudes vs Y, fits it, and defines center as where the ratio is 1
-    def ratio_method(hodo_center):
+        filei   = file[0]
+        xtal    = file[1]
 
-        ## Sorry for confusing names. consider "x" as in dx, simply denoting some length. It might be X or Y, depending on which position you're at. See above
-        ampbias = 0.866
-        axis = "fitResult[0].y()"
-        fit_range = [hodo_center - 2.0, hodo_center + 2.0]
-        hx    = ROOT.TH2F("hx", "", 100, fit_range[0], fit_range[1], 100, 0, 10)               
-        x_var = "fit_ampl[{0}]/({1}*fit_ampl[{2}]):{3}>>hx".format(xtal[0], ampbias, xtal[1], axis)   # Amp ratio: amp1/(calibrate*amp2) vs (X or Y)
-        basic_cut = "fit_chi2[{0}]>0 && fit_chi2[{1}]>0 && fabs(fitResult[0].y())<20 && fabs(fitResult[0].x())<20".format(xtal[0], xtal[1])
-        x_cut = "{0}*fit_ampl[{1}]>0".format(ampbias, xtal[1]) + " && " + basic_cut                                     # Avoid /0 errors
-        t_tree.Draw(x_var, ROOT.TCut(x_cut), "COLZ")                                                                    # Draw the ratio of the two xtal's amplitudes against (X or Y) into 'hx'
-        poly2 = ROOT.TF1("poly2", "pol2", fit_range[0], fit_range[1])                                                   # Fit the plot, pol2 works well, but is not physically justified
-        poly2.SetParameters(5, -1, 0.1)                                                                                 # Get the parameters in the right ballpark to start
-        hx.Fit("poly2", "QR")
-        p         = poly2.GetParameters()                                                                               # Get the parameters from the fit
-        solutions = [s for s in roots([p[2],p[1],p[0]-1]) if isreal(s) and (s>fit_range[0]) and (s<fit_range[1])]       # (p[0]-1 b/c we want to solve for where the pol2 == 1)
+        ## Hodoscope center, not beam center, but useful for reference
+        # Finds the first and last bins above some threshold and takes the mid-bin between them.
+        # This prevents uneven distributions from skewing the result if you just used GetMean()
+        hodox = ROOT.TH1F("hodox", "", 100, -20, 20)
+        hodoy = ROOT.TH1F("hodoy", "", 100, -20, 20)
+        t_tree.Draw("fitResult[0].x()>>hodox")
+        t_tree.Draw("fitResult[0].y()>>hodoy")
+        threshold = hodox.GetMaximum()/3.
+        threshold = hodoy.GetMaximum()/3.
+        hodo_x_center  = hodox.GetBinCenter( (hodox.FindFirstBinAbove(threshold) + hodox.FindLastBinAbove(threshold)) / 2 )
+        hodo_y_center  = hodoy.GetBinCenter( (hodoy.FindFirstBinAbove(threshold) + hodoy.FindLastBinAbove(threshold)) / 2 )
 
-        ## There should only be 1 solution in the fit range. If there are 0 or >1, abort!
-        if len(solutions) != 1: 
-            return hodo_center
-        else: 
-            return solutions[0]
-
-    x_center = hodo_x_center
-
-    if xtal[2] == 'C3down':
-        y_center = ratio_method(hodo_y_center)
-    else:
+        x_center = hodo_x_center
         y_center = hodo_y_center
+        print "{0:^9s}:".format(xtal[2]), "X center: {0:.2f}\t".format(x_center), "Y center: {0:.2f}".format(y_center)
+        centers.append([x_center, y_center])
+
+        hodox.Delete()
+        hodoy.Delete()
+
+    return centers
+
+def find_C3_center(files, centers):
+
+    ri      = runinfo(files[1][1])
+    sign    = ri.axis_sign
+    C3_centers  = []
+    for filei, centers in zip(files, centers):
+        
+        xtal = filei[1]
+        if   'x' in ri.axis:
+            center = centers[0]     # x_center
+        elif 'y' in ri.axis:
+            center = centers[1]     # y_center
+
+        position = xtal[2]
+        if   position == 'C3':
+            C3_centers.append(center)
+        elif len(position) > 2:         # IE C3left, C3right, etc
+            C3_centers.append(center + sign*11)
+        elif len(position) == 2:        # IE C4, B3, D3, etc
+            C3_centers.append(center + sign*22)
+    return C3_centers
+
+class runinfo:
+    def __init__(self, xtal):
+        if   xtal[2] == 'C3down':
+            self.axis        = 'fitResult[0].y()'
+            self.ampbias     = 0.866
+            self.axis_sign   = 1    # This is a confusing var. From somewhere between the xtals (C3 and C2) do you + or - from the y-coord to get back to C3? Add, so sign=+1 in this case
+        elif xtal[2] == 'C3up':
+            self.axis        = 'fitResult[0].y()'
+            self.ampbias     = 0.945
+            self.axis_sign   = -1
+        elif xtal[2] == 'C3left':
+            self.axis        = 'fitResult[0].x()'
+            self.ampbias     = 0.905
+            self.axis_sign   = 1
+        elif xtal[2] == 'C3right':
+            self.axis        = 'fitResult[0].x()'
+            self.ampbias     = 0.905
+            self.axis_sign   = -1
+        else:
+            print xtal[2], 'not found'
+            self.axis   = 'N/A'
+            self.ampbias= 1
+
+def stitch_and_plot(files):
+
+    ri      = runinfo(files[1][1])
+    axis    = ri.axis
+
+    f0 = files[0]
+    f1 = files[1]
+    f2 = files[2]
+
+    f0_tfile        = ROOT.TFile(f0[0])
+    f1_tfile        = ROOT.TFile(f1[0])
+    f2_tfile        = ROOT.TFile(f2[0])
     
-    #print "Dip_residual center: {0:.2f} Ratio center: {1:.2f}".format(found_centers[0], found_centers[1])
-    print "Hodoscope centers: {0:.2f}, {1:.2f}".format(hodo_x_center, hodo_y_center)
-    print "X center: {0:.2f}".format(x_center)
-    print "Y center: {0:.2f}".format(y_center)
+    f0_h4           = f0_tfile.Get("h4")
+    f1_h4           = f1_tfile.Get("h4")
+    f2_h4           = f2_tfile.Get("h4")
+    h4_trees        = [f0_h4, f1_h4, f2_h4]
 
-    return x_center, y_center
+    target_centers  = find_target_center(files, h4_trees)
+    C3_centers      = find_C3_center(files, target_centers)
 
-def find_C3_center(xtal, target_center):
-    position = xtal[2]
-    if position == 'C3':
-        return target_center
-    elif position == 'C3down':
-        return target_center + 11
-    elif position == 'C2':
-        return target_center + 22
+    bins  = 70,-35,35,1000,-7,7
+    phase_corr = "int((fit_time[C3] - fit_time[MCP1] + fit_time[VFE_CLK])/{0})*{0}".format(6.238)
+    dt     = "fit_time[C3] - fit_time[MCP1] + fit_time[VFE_CLK] - %s" % phase_corr
+    ##dt    = "fit_time[C3]  - fit_time[{0}]".format(f1[1][1])
+    ##cut   = "n_tracks==1 && fit_time[C3]>0 && fit_time[{0}]>0 && fit_time[{1}]>0 && ".format(f1[1][0], f1[1][1])
+    cut   = "n_tracks==1 && fit_time[C3]>0 && fit_ampl[MCP1]>50 && fit_chi2[C3]<100 && "
+
+    f_cut  = "fabs(fitResult[0].x() - {0})<5 && fabs(fitResult[0].y() - {1})<5 && "
+
+    print "File 1: ", f0[0]
+    f0_tfile.cd()
+    dr              = "{0} - {1}".format(C3_centers[0], axis)
+    f0_cut          = cut
+    f0_cut         += f_cut.format(target_centers[0][0], target_centers[0][1])
+    f0_cut         += "fit_chi2[{0}]>0 && fit_chi2[{0}]<100".format(f0[1][0]) 
+    f0_lincorr      = ROOT.TH2F("f0_lincorr","",bins[0], bins[1], bins[2], bins[3], bins[4], bins[5])
+    f0_h4.Draw(dt+":"+dr+">>f0_lincorr", ROOT.TCut(f0_cut))
+    f0_lincorr.FitSlicesY()
+    f0_lincorr_1    = f0_tfile.Get("f0_lincorr_1")
+
+    print "File 2: ", f1[0]
+    f1_tfile.cd()
+    dr              = "{0} - {1}".format(C3_centers[1], axis)
+    f1_cut          = cut
+    f1_cut         += f_cut.format(target_centers[1][0], target_centers[1][1])
+    f1_cut         += "fit_chi2[{0}]>0 && fit_chi2[{0}]<100 && fit_chi2[{1}]>0 && fit_chi2[{1}]<100".format(f1[1][0], f1[1][1]) 
+    f1_lincorr      = ROOT.TH2F("f1_lincorr","",bins[0], bins[1], bins[2], bins[3], bins[4], bins[5])
+    f1_h4.Draw(dt+":"+dr+">>f1_lincorr", ROOT.TCut(f1_cut))
+    f1_lincorr.FitSlicesY()
+    f1_lincorr_1    = f1_tfile.Get("f1_lincorr_1")
+
+    print "File 3: ", f2[0]
+    f2_tfile.cd()
+    dr              = "{0} - {1}".format(C3_centers[2], axis)
+    f2_cut          = cut
+    f2_cut         += f_cut.format(target_centers[2][0], target_centers[2][1])
+    f2_cut         += "fit_chi2[{0}]>0 && fit_chi2[{0}]<100".format(f2[1][0]) 
+    f2_lincorr      = ROOT.TH2F("f2_lincorr","",bins[0], bins[1], bins[2], bins[3], bins[4], bins[5])
+    f2_h4.Draw(dt+":"+dr+">>f2_lincorr", ROOT.TCut(f2_cut))
+    f2_lincorr.FitSlicesY()
+    f2_lincorr_1    = f2_tfile.Get("f2_lincorr_1")
+
+    h = ROOT.TH1D("h","",bins[0], bins[1], bins[2])
+    h.Add(f0_lincorr_1)
+    h.Add(f1_lincorr_1)
+    h.Add(f2_lincorr_1)
+    
+    root_savefile = ROOT.TFile("/afs/cern.ch/user/m/mplesser/tmp/plots/{0}_extended_lin_corr.root".format(files[1][1][2]), "recreate")
+    root_savefile.cd()              
+    h.Write()
 
 def main():
 
+    ROOT.gROOT.ProcessLine("gErrorIgnoreLevel = kError;")
+    #ROOT.gROOT.SetBatch(ROOT.kTRUE)
+    ROOT.gStyle.SetOptStat(0)
+
+    ## allows you you to use fitResult.x() and y()
     ROOT.gSystem.Load("/afs/cern.ch/user/m/mplesser/H4Analysis/CfgManager/lib/libCFGMan.so")
     ROOT.gSystem.Load("/afs/cern.ch/user/m/mplesser/H4Analysis/lib/libH4Analysis.so")
     ROOT.gSystem.Load("/afs/cern.ch/user/m/mplesser/H4Analysis/DynamicTTree/lib/libDTT.so")
 
-    C3file      = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C3_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_compiled_C3.root'      , ['C3','','C3']
-    C3downfile  = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C3ud_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_compiled_C3down.root', ['C3','C2','C3down']
-    C2file      = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C2_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_compiled_C2.root'      , ['C2','','C2']
+    ### Files ###
+    C3file      = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C3_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_onefileperenergy_C3.root'       , ['C3','','C3']
 
-    bins = 90,-5,25,1000,-5,5
+    #C3down
+    C3downfile  = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C3ud_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_onefileperenergy_C3down.root' , ['C3','C2','C3down']
+    C2file      = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C2_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_onefileperenergy_C2.root'       , ['C2','','C2']
 
-    # This is a horrible, ugly, lazy way to do this.
-    # Sorry, it WILL be fixed after the holidays...
+    #C3up
+    C3upfile    = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C3ud_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_onefileperenergy_C3up.root'   , ['C3','C4','C3up']
+    C4file      = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C4_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_onefileperenergy_C4.root'       , ['C4','','C4']
 
-    C3_tfile      = ROOT.TFile(C3file[0])
-    C3_h4         = C3_tfile.Get("h4")
-    target_center = find_target_center(C3_h4, C3file[1])
-    C3_center     = find_C3_center(C3file[1], target_center[1])
-    dt   = "fit_time[C3]  - fit_time[C2]"
-    dr   = "{0} - fitResult[0].y()".format(C3_center)
-    cut  = "n_tracks==1 && "
-    cut += "fit_time[C3]>0 && fit_time[C2]>0 && "
-    cut += "fabs(fitResult[0].x() - {0})<3 && ".format(target_center[0])
-    cut += "fabs(fitResult[0].y() - {0})<5 && ".format(target_center[1])
-    cut += "1"
-    C3_lincorr    = ROOT.TH2F("C3_lincorr","",bins[0], bins[1], bins[2], bins[3], bins[4], bins[5])
-    C3_h4.Draw(dt+":"+dr+">>C3_lincorr", ROOT.TCut(cut))
-    C3_lincorr.FitSlicesY()
-    C3_lincorr_1  = C3_tfile.Get("C3_lincorr_1")
-
-
-    C3down_tfile     = ROOT.TFile(C3downfile[0])
-    C3down_h4        = C3down_tfile.Get("h4")
-    target_center    = find_target_center(C3down_h4, C3downfile[1])
-    C3_center        = find_C3_center(C3downfile[1], target_center[1])
-    dt   = "fit_time[C3]  - fit_time[C2]"
-    dr   = "{0} - fitResult[0].y()".format(C3_center)
-    cut  = "n_tracks==1 && "
-    cut += "fit_time[C3]>0 && fit_time[C2]>0 && "
-    cut += "fabs(fitResult[0].x() - {0})<3 && ".format(target_center[0])
-    cut += "fabs(fitResult[0].y() - {0})<5 && ".format(target_center[1])
-    cut += "1"
-    C3down_lincorr   = ROOT.TH2F("C3down_lincorr","",bins[0], bins[1], bins[2], bins[3], bins[4], bins[5])
-    C3down_h4.Draw(dt+":"+dr+">>C3down_lincorr", ROOT.TCut(cut))
-    C3down_lincorr.FitSlicesY()
-    C3down_lincorr_1 = C3down_tfile.Get("C3down_lincorr_1")
-
-
-    C2_tfile      = ROOT.TFile(C2file[0])
-    C2_h4         = C2_tfile.Get("h4")
-    target_center = find_target_center(C2_h4, C2file[1])
-    C3_center     = find_C3_center(C2file[1], target_center[1])
-    dt   = "fit_time[C3]  - fit_time[C2]"
-    dr   = "{0} - fitResult[0].y()".format(C3_center)
-    cut  = "n_tracks==1 && "
-    cut += "fit_time[C3]>0 && fit_time[C2]>0 && "
-    cut += "fabs(fitResult[0].x() - {0})<3 && ".format(target_center[0])
-    cut += "fabs(fitResult[0].y() - {0})<5 && ".format(target_center[1])
-    cut += "1"
-    C2_lincorr    = ROOT.TH2F("C2_lincorr","",bins[0], bins[1], bins[2], bins[3], bins[4], bins[5])
-    C2_h4.Draw(dt+":"+dr+">>C2_lincorr", ROOT.TCut(cut))
-    C2_lincorr.FitSlicesY()
-    C2_lincorr_1  = C2_tfile.Get("C2_lincorr_1")
-
+    #C3left
+    C3leftfile  = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C3lr_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_compiled_C3left.root' , ['C3','B3','C3left']
+    B3file      = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_B3_160_18/ECAL_H4_October2018_13403.root'                                     , ['B3','','B3']
     
-    h = ROOT.TH1D("h","",bins[0], bins[1], bins[2])
-    h.Add(C3_lincorr_1)
-    h.Add(C2_lincorr_1)
-    h.Add(C3down_lincorr_1)
+    #C3right
+    C3rightfile = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_C3lr_160_18/compiled_roots/ECAL_H4_Oct2018_160MHz_18deg_compiled_C3right.root', ['C3','D3','C3right']
+    D3file      = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_D3_160_18/ECAL_H4_October2018_13410.root'                                     , ['D3','','D3']
     
-    root_savefile = ROOT.TFile("/afs/cern.ch/user/m/mplesser/extended_lin_corr.root", "recreate")
-    root_savefile.cd()              
-    h.Write()
+    C3down_files  = [C3file, C3downfile , C2file]
+    C3up_files    = [C3file, C3upfile   , C4file]
+    C3left_files  = [C3file, C3leftfile , B3file]
+    C3right_files = [C3file, C3rightfile, D3file]
 
+    print
+    stitch_and_plot(C3down_files)
+    print
+    stitch_and_plot(C3up_files)
+    print
+    #stitch_and_plot(C3left_files)
+    print
+    #stitch_and_plot(C3right_files)
 
 if __name__=="__main__":
     main()
