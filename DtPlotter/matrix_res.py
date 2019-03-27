@@ -150,12 +150,13 @@ def main():
 
     ## File info
     global xtal
-    pos  = 'C3'
+    pos  = 'C2'
     freq, temp  = 160, 18
     tunit       = 1000./(freq)  # t_unit is the period length for a given frequency. IE 160MHz is 6.25ns
 
     path = '/eos/user/m/mplesser/matrix_time_analysis_recos/ntuples_{}_{}_{}/compiled_roots/'.format(pos, freq, temp)
     file = 'ECAL_H4_Oct2018_{}MHz_{}deg_onefileperenergy_{}.root'.format(freq, temp, pos)
+    #file = 'ECAL_H4_Oct2018_{}MHz_{}deg_compiled_{}.root'.format(freq, temp, pos)
     tfile = TFile(path + file)
     h4 = tfile.Get("h4")
 
@@ -174,9 +175,9 @@ def main():
         t_var      = "( fit_time[{0}] - fit_time[MCP1] + fit_time[VFE_CLK] - int((fit_time[C3] - fit_time[MCP1] + fit_time[VFE_CLK])/{1})*{1} )".format(xtal, tunit)
         amp        = "fit_ampl[{0}]/b_rms[{0}]".format(xtal)
         cuts       = "n_tracks==1 && "
-        cuts      += "fit_ampl[MCP1]>200 && fit_chi2[{0}]<100 && fit_chi2[{0}]>0.1 && fit_chi2[MCP1]<15 && fit_chi2[MCP1]>0.1 && ".format(xtal)
+        cuts      += "fit_ampl[MCP1]>100 && fit_chi2[{0}]<100 && fit_chi2[{0}]>0.1 && fit_chi2[MCP1]<15 && fit_chi2[MCP1]>0.1 && ".format(xtal)
         cuts      += "fit_time[{0}]>0 && fit_time[VFE_CLK]>0 && fit_time[MCP1]>0 &&".format(xtal)
-        cuts      += "fabs(fitResult[0].x()-{0})<3 && fabs(fitResult[0].y()-{1})<3 && ".format(xtal_center[0], xtal_center[1])  # TBD: import center finding functions
+        cuts      += "fabs(fitResult[0].x()-{0})<5 && fabs(fitResult[0].y()-{1})<5 && ".format(xtal_center[0], xtal_center[1])  # TBD: import center finding functions
         cuts      += "1"
 
         bins = 20,100,2500,500,0,tunit
@@ -186,9 +187,9 @@ def main():
         mean_fit, res_fit = fit_y_slices(h4, h1)    ## This is the "real" line
         
         # Some runtime checks. See the plot, check the cterm for reasonability, save plot.
-        res_fit.Fit("userfit","RM","",300,2500)
+        res_fit.Fit("userfit","RM","",100,2500)
         res_fit.Draw("AP")                          
-        print "constant term: {0:.2f} ps, seem reasonable?".format(userfit.GetParameter(1)*1000.)
+        print "constant term: {0:.2f} ps, seem reasonable?".format(abs(userfit.GetParameter(1))*1000.)
         root_savefile = TFile("/afs/cern.ch/user/m/mplesser/tmp/{}_{}_{}_res.root".format(pos, freq, temp), "recreate")
         root_savefile.cd()              
         res_fit.Write()
@@ -248,11 +249,18 @@ def main():
 
         ##################################
         ##################################
+
+    
+    ### Run the desired analysis ###
+    ################################
     print
-    #single_xtal_analysis()
-    matrix_analysis()
+    single_xtal_analysis()
+    #matrix_analysis()
+    
+    ################################
 
     tfile.Close()
+
 if __name__=="__main__":
     main()
 

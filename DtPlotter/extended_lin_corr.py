@@ -8,8 +8,12 @@ import ROOT
 from numpy import roots, isreal
 
 def find_target_center(files, trees):
+    
+    return [ [-4.6,3.], [-4.6,3.], [-4.6,3.] ]
 
-    ri.axis
+    ri      = runinfo(files[1][1])
+    ampbias = ri.ampbias
+    axis    = ri.axis
     centers = []
     print "Finding target centers..."
 
@@ -30,6 +34,34 @@ def find_target_center(files, trees):
         hodo_x_center  = hodox.GetBinCenter( (hodox.FindFirstBinAbove(threshold) + hodox.FindLastBinAbove(threshold)) / 2 )
         hodo_y_center  = hodoy.GetBinCenter( (hodoy.FindFirstBinAbove(threshold) + hodoy.FindLastBinAbove(threshold)) / 2 )
 
+        ## Simpler but less accurate. This method takes the ratio of the two amplitudes vs Y, fits it, and defines center as where the ratio is 1
+        def ratio_method(hodo_center):
+
+            ## Sorry for confusing names. consider "x" as in dx, simply denoting some length. It might be X or Y, depending on which position you're at. See above
+            fit_range   = [hodo_center - 2.0, hodo_center + 2.0]
+            hx          = ROOT.TH2F("hx", "", 100, fit_range[0], fit_range[1], 100, 0, 10)               
+            x_var       = "fit_ampl[{0}]/({1}*fit_ampl[{2}]):{3}>>hx".format(xtal[0], ampbias, xtal[1], axis)               # Amp ratio: amp1/(calibrate*amp2) vs (X or Y)
+            basic_cut   = "fit_chi2[{0}]>0 && fit_chi2[{1}]>0 && fabs(fitResult[0].y())<20 && fabs(fitResult[0].x())<20".format(xtal[0], xtal[1])
+            x_cut       = "{0}*fit_ampl[{1}]>0".format(ampbias, xtal[1]) + " && " + basic_cut                               # Avoid /0 errors
+            t_tree.Draw(x_var, ROOT.TCut(x_cut), "COLZ")                                                                    # Draw the ratio of the two xtal's amplitudes against (X or Y) into 'hx'
+            poly2 = ROOT.TF1("poly2", "pol2", fit_range[0], fit_range[1])                                                   # Fit the plot, pol2 works well, but is not physically justified
+            poly2.SetParameters(5, -1, 0.1)                                                                                 # Get the parameters in the right ballpark to start
+            hx.Fit("poly2", "QR")
+            p           = poly2.GetParameters()                                                                             # Get the parameters from the fit
+            solutions   = [s for s in roots([p[2],p[1],p[0]-1]) if isreal(s) and (s>fit_range[0]) and (s<fit_range[1])]     # (p[0]-1 b/c we want to solve for where the pol2 == 1)
+            if len(solutions) != 1: return hodo_center                                                                      # There should only be 1 solution in the fit range
+            else:                   return solutions[0]
+
+        #if   axis == 'N/A':
+        #    x_center = hodo_x_center
+        #    y_center = hodo_y_center
+        #elif 'x' in axis:
+        #    x_center = ratio_method(hodo_x_center)
+        #    y_center = hodo_y_center
+        #elif 'y' in axis:
+        #    x_center = hodo_x_center
+        #    y_center = ratio_method(hodo_y_center)
+        
         x_center = hodo_x_center
         y_center = hodo_y_center
         print "{0:^9s}:".format(xtal[2]), "X center: {0:.2f}\t".format(x_center), "Y center: {0:.2f}".format(y_center)
